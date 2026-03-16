@@ -124,11 +124,28 @@ Generate stunning visuals using AI and seamlessly integrate them into the Digita
 - Docker & Docker Compose
 - Node.js 18+ (for local development)
 
-### 1. Clone and Configure
+### 1. Initial Setup
 
 ```bash
 cd hcl-dx-composer
 
+# Run the setup script (creates .env with secure defaults)
+./scripts/setup.sh
+```
+
+### 2. Deploy with Scripts
+
+```bash
+# Deploy to Docker (recommended)
+./scripts/deploy.sh --build
+
+# Or for local development
+./scripts/dev.sh --install
+```
+
+### Manual Setup (Alternative)
+
+```bash
 # Copy environment template
 cp .env.example .env
 
@@ -188,6 +205,46 @@ docker-compose down
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:3001/api
 - **Health Check**: http://localhost:3001/api/health
+
+## Deployment Scripts
+
+The `scripts/` folder contains helper scripts for setup and deployment:
+
+| Script | Description |
+|--------|-------------|
+| `setup.sh` | Initial setup - creates `.env` with secure defaults |
+| `deploy.sh` | Docker deployment with various options |
+| `dev.sh` | Local development mode |
+| `backup.sh` | Backup database and uploads |
+| `health-check.sh` | Check health of all services |
+
+### Deploy Script Options
+
+```bash
+./scripts/deploy.sh [OPTIONS]
+
+Options:
+  --build, -b       Build images before starting
+  --foreground, -f  Run in foreground (attached)
+  --recreate, -r    Force recreate containers
+  --stop, -s        Stop running containers
+  --down, -d        Stop and remove containers
+  --restart         Restart all services
+  --logs, -l        Show container logs
+  --status          Show container status
+```
+
+### Development Script Options
+
+```bash
+./scripts/dev.sh [OPTIONS]
+
+Options:
+  --backend, -b    Run only backend
+  --frontend, -f   Run only frontend
+  --db-only        Run only database
+  --install, -i    Install dependencies first
+```
 
 ## Development Setup
 
