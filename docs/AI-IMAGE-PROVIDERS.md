@@ -8,10 +8,106 @@ HCL DX Composer supports multiple AI image generation providers, including **fre
 
 | Provider | Free Tier | Quality | Speed | Best For |
 |----------|-----------|---------|-------|----------|
+| **Pollinations AI** | ✅ Unlimited | Good | Fast | No signup, instant use |
 | **Google Gemini** | ✅ 500/day | High | Fast | General purpose, recommended |
 | **Hugging Face** | ✅ Limited | Variable | Medium | Open-source models, customization |
 | **OpenAI DALL-E** | ❌ Paid | Excellent | Fast | Photorealistic, professional |
 | **Stability AI** | ❌ Paid | Excellent | Medium | Artistic, fine control |
+
+---
+
+## Pollinations AI (FREE - No Signup Required)
+
+Pollinations AI is a completely free, open-source AI platform that requires **no API key** for basic image generation.
+
+### Free Tier Limits
+
+- **Unlimited images** (fair use)
+- **No API key required** for basic usage
+- **No signup needed**
+- Models: FLUX, Turbo, and more
+
+### Setup
+
+No configuration required! Just set the provider:
+
+```env
+AI_IMAGE_PROVIDER=pollinations
+# No API key needed for basic usage
+# Optional: Get API key for premium features at https://enter.pollinations.ai
+POLLINATIONS_API_KEY=
+```
+
+### API Usage Example
+
+```javascript
+// Simple GET request - no authentication needed!
+async function generateImage(prompt) {
+  const encodedPrompt = encodeURIComponent(prompt);
+  const url = `https://pollinations.ai/p/${encodedPrompt}`;
+  
+  const response = await fetch(url);
+  const imageBuffer = await response.arrayBuffer();
+  return Buffer.from(imageBuffer);
+}
+
+// With parameters
+async function generateImageAdvanced(prompt, options = {}) {
+  const params = new URLSearchParams({
+    width: options.width || 1024,
+    height: options.height || 1024,
+    model: options.model || 'flux',
+    seed: options.seed || Math.floor(Math.random() * 1000000),
+  });
+  
+  const encodedPrompt = encodeURIComponent(prompt);
+  const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?${params}`;
+  
+  const response = await fetch(url);
+  return Buffer.from(await response.arrayBuffer());
+}
+```
+
+### Available Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `https://pollinations.ai/p/{prompt}` | GET | Simple image generation |
+| `https://image.pollinations.ai/prompt/{prompt}` | GET | Image with parameters |
+| `https://gen.pollinations.ai/image/{prompt}` | GET | Alternative endpoint |
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `width` | number | 1024 | Image width (max 2048) |
+| `height` | number | 1024 | Image height (max 2048) |
+| `model` | string | flux | Model: flux, turbo |
+| `seed` | number | random | Reproducible generation |
+| `nologo` | boolean | false | Remove Pollinations watermark |
+| `enhance` | boolean | false | Enhance prompt with AI |
+
+### Example URLs
+
+```bash
+# Basic image
+https://pollinations.ai/p/a%20beautiful%20sunset
+
+# With parameters
+https://image.pollinations.ai/prompt/a%20cat?width=512&height=512&model=flux
+
+# Download with curl
+curl "https://pollinations.ai/p/corporate%20office%20building" -o image.jpg
+```
+
+### Why Choose Pollinations?
+
+- ✅ **Completely Free** - No costs, no credits
+- ✅ **No Signup** - Start using immediately
+- ✅ **No API Key** - Just make HTTP requests
+- ✅ **Open Source** - Transparent and community-driven
+- ✅ **Multiple Models** - FLUX, Turbo, and more
+- ✅ **Fast** - Quick response times
 
 ---
 
@@ -242,7 +338,13 @@ async function generateImage(prompt) {
 ┌─────────────────────────────────────────────────────────────────┐
 │                    FREE AI IMAGE GENERATION                      │
 ├─────────────────┬───────────────────────────────────────────────┤
-│ Google Gemini   │ ★★★★★ Best free option                        │
+│ Pollinations AI │ ★★★★★ Easiest to start                        │
+│                 │ • Unlimited images (fair use)                 │
+│                 │ • NO API KEY REQUIRED                         │
+│                 │ • No signup needed                            │
+│                 │ • Just HTTP GET requests                      │
+├─────────────────┼───────────────────────────────────────────────┤
+│ Google Gemini   │ ★★★★★ Best quality free option                │
 │                 │ • 500 images/day                              │
 │                 │ • High quality                                │
 │                 │ • Fast response                               │
@@ -280,7 +382,15 @@ async function generateImage(prompt) {
 
 ## Quick Configuration
 
-### For Free Tier (Recommended)
+### For Instant Start (No Signup)
+
+```env
+# Use Pollinations AI - No API key needed!
+AI_IMAGE_PROVIDER=pollinations
+# That's it! No API key required
+```
+
+### For Free Tier with Higher Quality
 
 ```env
 # Use Google Gemini - 500 free images/day
@@ -308,6 +418,14 @@ HUGGINGFACE_MODEL=black-forest-labs/FLUX.1-schnell
 ---
 
 ## Troubleshooting
+
+### Pollinations AI Issues
+
+| Error | Solution |
+|-------|----------|
+| `Image not loading` | Check internet connection, retry |
+| `Timeout` | Reduce image size, try again |
+| `Content filtered` | Modify prompt to be appropriate |
 
 ### Google Gemini Issues
 

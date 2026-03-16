@@ -631,6 +631,7 @@ if [ ! -f ".env" ]; then
     echo "  ┌─────────────────┬──────────────────────┬─────────────┬──────────────────┐"
     echo "  │ Provider        │ Model                │ Free Tier   │ Best For         │"
     echo "  ├─────────────────┼──────────────────────┼─────────────┼──────────────────┤"
+    echo "  │ Pollinations    │ FLUX, Turbo          │ ✓ Unlimited │ No signup needed │"
     echo "  │ Google Gemini   │ Gemini Flash Image   │ ✓ 500/day   │ General, Fast    │"
     echo "  │ Hugging Face    │ FLUX.1, Stable Diff  │ ✓ Limited   │ Open-source      │"
     echo "  │ OpenAI          │ DALL-E 3             │ ✗ Paid      │ Photorealistic   │"
@@ -650,28 +651,36 @@ if [ ! -f ".env" ]; then
     STABILITY_API_KEY=""
     GOOGLE_AI_API_KEY=""
     HUGGINGFACE_API_KEY=""
-    AI_IMAGE_PROVIDER="gemini"
+    POLLINATIONS_API_KEY=""
+    AI_IMAGE_PROVIDER="pollinations"
+    HUGGINGFACE_MODEL="black-forest-labs/FLUX.1-schnell"
     
     if [ "$CONFIGURE_AI" = true ]; then
         echo ""
         echo -e "${YELLOW}Select AI Provider:${NC}"
         echo ""
-        echo "  1) Google Gemini (FREE) - Recommended for most users"
+        echo "  1) Pollinations AI (FREE) - No signup required!"
+        echo "     • Unlimited images (fair use)"
+        echo "     • NO API KEY NEEDED"
+        echo "     • Models: FLUX, Turbo"
+        echo "     • Website: https://pollinations.ai"
+        echo ""
+        echo "  2) Google Gemini (FREE) - High quality"
         echo "     • 500 free images/day"
-        echo "     • Model: gemini-2.5-flash-image / gemini-3.1-flash-image-preview"
+        echo "     • Model: gemini-2.5-flash-image"
         echo "     • Get API key: https://aistudio.google.com/apikey"
         echo ""
-        echo "  2) Hugging Face (FREE) - Open-source models"
+        echo "  3) Hugging Face (FREE) - Open-source models"
         echo "     • Limited free inference API requests"
         echo "     • Models: FLUX.1, Stable Diffusion XL"
         echo "     • Get API key: https://huggingface.co/settings/tokens"
         echo ""
-        echo "  3) OpenAI DALL-E (PAID) - High quality"
+        echo "  4) OpenAI DALL-E (PAID) - Premium quality"
         echo "     • Pay-per-image pricing"
         echo "     • Model: DALL-E 3"
         echo "     • Get API key: https://platform.openai.com/api-keys"
         echo ""
-        echo "  4) Stability AI (PAID) - Fine artistic control"
+        echo "  5) Stability AI (PAID) - Fine artistic control"
         echo "     • Pay-per-image pricing"
         echo "     • Models: SDXL, Stable Diffusion 3"
         echo "     • Get API key: https://platform.stability.ai/account/keys"
@@ -681,34 +690,39 @@ if [ ! -f ".env" ]; then
         
         case "$ai_choice" in
             1)
+                AI_IMAGE_PROVIDER="pollinations"
+                echo ""
+                print_info "Pollinations AI selected (FREE - No API key needed!)"
+                print_success "No configuration required - ready to use!"
+                ;;
+            2)
                 AI_IMAGE_PROVIDER="gemini"
                 echo ""
                 print_info "Google Gemini selected (FREE tier available)"
                 prompt_secret "Enter Google AI API key (from AI Studio)" GOOGLE_AI_API_KEY
                 ;;
-            2)
+            3)
                 AI_IMAGE_PROVIDER="huggingface"
                 echo ""
                 print_info "Hugging Face selected (FREE tier available)"
                 prompt_secret "Enter Hugging Face API token" HUGGINGFACE_API_KEY
                 prompt_input "Hugging Face model" "black-forest-labs/FLUX.1-schnell" HUGGINGFACE_MODEL
                 ;;
-            3)
+            4)
                 AI_IMAGE_PROVIDER="openai"
                 echo ""
                 print_info "OpenAI DALL-E selected (Paid)"
                 prompt_secret "Enter OpenAI API key" OPENAI_API_KEY
                 ;;
-            4)
+            5)
                 AI_IMAGE_PROVIDER="stability"
                 echo ""
                 print_info "Stability AI selected (Paid)"
                 prompt_secret "Enter Stability AI API key" STABILITY_API_KEY
                 ;;
             *)
-                AI_IMAGE_PROVIDER="gemini"
-                print_warning "Invalid choice, defaulting to Google Gemini"
-                prompt_secret "Enter Google AI API key" GOOGLE_AI_API_KEY
+                AI_IMAGE_PROVIDER="pollinations"
+                print_warning "Invalid choice, defaulting to Pollinations AI (free, no signup)"
                 ;;
         esac
         
@@ -832,9 +846,15 @@ LTPA2_REALM=
 # Enable AI-powered image generation for content creation
 # Multiple providers supported - choose based on your needs:
 #
-# FREE TIER OPTIONS:
+# FREE TIER OPTIONS (NO COST):
 # ─────────────────────────────────────────────────────────────────────────────
-# Google Gemini (RECOMMENDED)
+# Pollinations AI (EASIEST - No signup required!)
+#   • Unlimited images (fair use)
+#   • NO API KEY NEEDED
+#   • Models: FLUX, Turbo
+#   • Website: https://pollinations.ai
+#
+# Google Gemini
 #   • 500 free images/day
 #   • Models: gemini-2.5-flash-image, gemini-3.1-flash-image-preview
 #   • Get key: https://aistudio.google.com/apikey
@@ -854,11 +874,16 @@ LTPA2_REALM=
 #   • Pay-per-credit pricing
 #   • Get key: https://platform.stability.ai/account/keys
 #
-# AI_IMAGE_PROVIDER: 'gemini', 'huggingface', 'openai', or 'stability'
+# AI_IMAGE_PROVIDER: 'pollinations', 'gemini', 'huggingface', 'openai', or 'stability'
 #===============================================================================
 AI_IMAGE_PROVIDER=${AI_IMAGE_PROVIDER}
 
-# Google Gemini (FREE - Recommended)
+# Pollinations AI (FREE - No API key required!)
+# Just works out of the box - no configuration needed
+# Optional API key for premium features: https://enter.pollinations.ai
+POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+
+# Google Gemini (FREE)
 GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
 GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
 

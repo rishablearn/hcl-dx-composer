@@ -110,6 +110,7 @@ Generate stunning visuals using AI and seamlessly integrate them into the Digita
 
    | Provider | Model | Free Tier | Best For |
    |----------|-------|-----------|----------|
+   | **Pollinations AI** | FLUX, Turbo | ✅ Unlimited, no signup | Instant start, no API key |
    | **Google Gemini** | Gemini 2.5/3.1 Flash Image | ✅ 500 images/day | General purpose, fast |
    | **Hugging Face** | FLUX.1, Stable Diffusion | ✅ Limited requests | Open-source, customizable |
    | **OpenAI** | DALL-E 3 | ❌ Paid only | High quality, photorealistic |
