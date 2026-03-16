@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  db:
+    image: postgres:15-alpine
+    container_name: hcl-dx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hcl_dx_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-hcldx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hcldx_secure_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+      - ./uploads:/var/uploads
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - hcl-dx-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hcldx} -d ${POSTGRES_DB:-hcl_dx_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hcl-dx-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3001
+      # Database Configuration
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-hcl_dx_staging}
+      DB_USER: ${POSTGRES_USER:-hcldx}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-hcldx_secure_password}
+      # LDAP Configuration
+      LDAP_URL: ${LDAP_URL}
+      LDAP_BASE_DN: ${LDAP_BASE_DN}
+      LDAP_BIND_DN: ${LDAP_BIND_DN}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+      LDAP_USER_SEARCH_BASE: ${LDAP_USER_SEARCH_BASE}
+      LDAP_GROUP_SEARCH_BASE: ${LDAP_GROUP_SEARCH_BASE}
+      # HCL DX Configuration
+      HCL_DX_HOST: ${HCL_DX_HOST}
+      HCL_DX_PORT: ${HCL_DX_PORT:-443}
+      HCL_DX_PROTOCOL: ${HCL_DX_PROTOCOL:-https}
+      HCL_DX_API_KEY: ${HCL_DX_API_KEY}
+      HCL_DX_WCM_LIBRARY: ${HCL_DX_WCM_LIBRARY}
+      HCL_DX_DAM_BASE_URL: ${HCL_DX_DAM_BASE_URL}
+      HCL_DX_WCM_BASE_URL: ${HCL_DX_WCM_BASE_URL}
+      # LTPA2 SSO Configuration
+      LTPA2_SECRET_KEY: ${LTPA2_SECRET_KEY}
+      LTPA2_REALM: ${LTPA2_REALM}
+      # JWT Secret for session management
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_change_in_production}
+      SESSION_SECRET: ${SESSION_SECRET:-your_session_secret_change_in_production}
+      # Upload Configuration
+      UPLOAD_PATH: /var/uploads
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-52428800}
+      # AI Image Generation Configuration
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      STABILITY_API_KEY: ${STABILITY_API_KEY}
+      AI_IMAGE_PROVIDER: ${AI_IMAGE_PROVIDER:-openai}
+    volumes:
+      - ./uploads:/var/uploads
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - hcl-dx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001/api}
+    container_name: hcl-dx-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - hcl-dx-network
+
+networks:
+  hcl-dx-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

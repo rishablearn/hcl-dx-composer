@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- BPCL Flame Symbol - Icon version -->
+  <g transform="translate(4, 2)">
+    <!-- Outer flame - Red -->
+    <path d="M20 0C20 0 32 14 32 24C32 36 27 42 20 48C13 42 8 36 8 24C8 14 20 0 20 0Z" fill="#E31837"/>
+    <!-- Inner flame - Yellow/Gold -->
+    <path d="M20 7C20 7 28 17 28 25C28 34 24 40 20 44C16 40 12 34 12 25C12 17 20 7 20 7Z" fill="#FFD100"/>
+    <!-- Core flame - Orange -->
+    <path d="M20 14C20 14 25 22 25 28C25 34 23 38 20 41C17 38 15 34 15 28C15 22 20 14 20 14Z" fill="#FF6B00"/>
+  </g>
+</svg>

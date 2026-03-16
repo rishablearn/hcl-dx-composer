@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  /* Glass Card Effect */
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-glass border border-white/20 rounded-xl shadow-glass;
+  }
+  
+  /* Primary Button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2 
+           bg-primary-500 hover:bg-primary-600 
+           text-navy-800 font-semibold 
+           rounded-lg transition-all duration-200 
+           shadow-sm hover:shadow-md
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+  
+  /* Secondary Button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2 
+           bg-secondary-500 hover:bg-secondary-600 
+           text-white font-semibold 
+           rounded-lg transition-all duration-200 
+           shadow-sm hover:shadow-md
+           focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2;
+  }
+  
+  /* Outline Button */
+  .btn-outline {
+    @apply inline-flex items-center justify-center px-4 py-2 
+           border-2 border-secondary-500 
+           text-secondary-500 hover:bg-secondary-500 hover:text-white
+           font-semibold rounded-lg transition-all duration-200 
+           focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:ring-offset-2;
+  }
+  
+  /* Ghost Button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-4 py-2 
+           text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900
+           font-medium rounded-lg transition-all duration-200;
+  }
+  
+  /* Input Field */
+  .input-field {
+    @apply w-full px-4 py-2.5 
+           bg-white border border-neutral-200 
+           rounded-lg text-neutral-900 
+           placeholder:text-neutral-400
+           focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:border-transparent
+           transition-all duration-200;
+  }
+  
+  /* Card */
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-neutral-100 overflow-hidden;
+  }
+  
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-card-hover hover:-translate-y-0.5;
+  }
+  
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .badge-draft {
+    @apply bg-neutral-100 text-neutral-700;
+  }
+  
+  .badge-pending {
+    @apply bg-warning-50 text-warning-600;
+  }
+  
+  .badge-approved {
+    @apply bg-success-50 text-success-600;
+  }
+  
+  .badge-published {
+    @apply bg-secondary-50 text-secondary-600;
+  }
+  
+  .badge-rejected {
+    @apply bg-error-50 text-error-600;
+  }
+  
+  /* Stepper */
+  .stepper-item {
+    @apply flex items-center;
+  }
+  
+  .stepper-circle {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium;
+  }
+  
+  .stepper-circle-active {
+    @apply bg-primary-500 text-navy-800;
+  }
+  
+  .stepper-circle-complete {
+    @apply bg-success-500 text-white;
+  }
+  
+  .stepper-circle-pending {
+    @apply bg-neutral-200 text-neutral-500;
+  }
+  
+  .stepper-line {
+    @apply flex-1 h-0.5 mx-2;
+  }
+  
+  .stepper-line-complete {
+    @apply bg-success-500;
+  }
+  
+  .stepper-line-pending {
+    @apply bg-neutral-200;
+  }
+}
+
+@layer utilities {
+  /* Scrollbar styling */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.neutral.300') transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.neutral.300');
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: theme('colors.neutral.400');
+  }
+}

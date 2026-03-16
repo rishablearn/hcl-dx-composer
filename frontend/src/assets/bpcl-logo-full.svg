@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" fill="none">
+  <!-- BPCL Flame Symbol -->
+  <g transform="translate(10, 8)">
+    <!-- Outer flame - Red -->
+    <path d="M30 0C30 0 45 20 45 32C45 48 38 58 30 65C22 58 15 48 15 32C15 20 30 0 30 0Z" fill="#E31837"/>
+    <!-- Inner flame - Yellow/Gold -->
+    <path d="M30 10C30 10 40 24 40 34C40 46 34 54 30 58C26 54 20 46 20 34C20 24 30 10 30 10Z" fill="#FFD100"/>
+    <!-- Core flame - Orange -->
+    <path d="M30 20C30 20 36 30 36 37C36 44 33 50 30 53C27 50 24 44 24 37C24 30 30 20 30 20Z" fill="#FF6B00"/>
+  </g>
+  
+  <!-- BHARAT text -->
+  <text x="75" y="38" font-family="Arial Black, Arial, sans-serif" font-size="26" font-weight="900" fill="#006B3F">BHARAT</text>
+  
+  <!-- PETROLEUM text -->
+  <text x="75" y="64" font-family="Arial Black, Arial, sans-serif" font-size="26" font-weight="900" fill="#006B3F">PETROLEUM</text>
+</svg>
