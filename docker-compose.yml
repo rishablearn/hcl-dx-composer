@@ -17,6 +17,9 @@ services:
       LDAP_BACKEND: mdb
       LDAP_TLS: "false"
       LDAP_TLS_VERIFY_CLIENT: never
+      LDAP_REPLICATION: "false"
+      KEEP_EXISTING_CONFIG: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
     volumes:
       - openldap_data:/var/lib/ldap
       - openldap_config:/etc/ldap/slapd.d
