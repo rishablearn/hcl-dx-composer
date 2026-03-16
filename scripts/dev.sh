@@ -1,9 +1,45 @@
 #!/usr/bin/env bash
 
 #===============================================================================
-# HCL DX Composer - Development Script
-# This script runs the application in development mode
-# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
+# HCL DX Composer - Local Development Script
+# 
+# DESCRIPTION:
+#   Run the application in development mode with hot-reloading.
+#   This script starts the database in Docker and runs frontend/backend locally.
+#
+# USAGE:
+#   ./scripts/dev.sh [MODE] [OPTIONS]
+#
+# MODES:
+#   all       Run everything (database + backend + frontend) [default]
+#   backend   Run only database and backend API
+#   frontend  Run only frontend (assumes backend is running)
+#   db        Run only database
+#
+# OPTIONS:
+#   --install    Install npm dependencies before starting
+#   --help, -h   Show this help message
+#
+# EXAMPLES:
+#   ./scripts/dev.sh                    # Start full development environment
+#   ./scripts/dev.sh --install          # Install dependencies and start
+#   ./scripts/dev.sh backend            # Only run backend + database
+#   ./scripts/dev.sh frontend           # Only run frontend
+#
+# PORTS (default):
+#   Database:  5432 (PostgreSQL)
+#   Backend:   3001 (Node.js Express)
+#   Frontend:  3000 (Vite React)
+#
+# HOT RELOADING:
+#   - Frontend: Changes to React components auto-refresh
+#   - Backend: Changes to Node.js files auto-restart (nodemon)
+#
+# COMPATIBLE WITH:
+#   macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine Linux
+#
+# AUTHOR: HCL DX Composer Team
+# VERSION: 2.0.0
 #===============================================================================
 
 set -e

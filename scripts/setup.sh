@@ -1,12 +1,178 @@
 #!/usr/bin/env bash
 
 #===============================================================================
-# HCL DX Composer - Initial Setup Script
-# This script sets up the environment for first-time deployment
-# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
+# HCL DX Composer - Interactive Setup Script
+# 
+# DESCRIPTION:
+#   This script guides you through the initial setup of HCL DX Composer.
+#   It checks prerequisites, configures environment variables, and prepares
+#   the application for deployment.
+#
+# USAGE:
+#   ./scripts/setup.sh [OPTIONS]
+#
+# OPTIONS:
+#   --skip-prompts    Skip interactive prompts (use defaults)
+#   --help            Show this help message
+#
+# PREREQUISITES:
+#   - Docker (required) - Container runtime
+#   - Docker Compose (required) - Container orchestration
+#   - Node.js 18+ (optional) - For local development only
+#
+# CONFIGURATION:
+#   The script creates a .env file with the following sections:
+#   - Database: PostgreSQL connection settings
+#   - Backend: API server configuration and secrets
+#   - Frontend: React app settings
+#   - LDAP: Active Directory authentication
+#   - HCL DX: Integration with HCL Digital Experience
+#   - AI: Optional AI image generation APIs
+#
+# COMPATIBLE WITH:
+#   macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine Linux
+#
+# AUTHOR: HCL DX Composer Team
+# VERSION: 2.0.0
 #===============================================================================
 
 set -e
+
+#-------------------------------------------------------------------------------
+# Global Variables
+#-------------------------------------------------------------------------------
+SKIP_PROMPTS=false
+INTERACTIVE=true
+
+#-------------------------------------------------------------------------------
+# Parse Command Line Arguments
+#-------------------------------------------------------------------------------
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --skip-prompts)
+                SKIP_PROMPTS=true
+                INTERACTIVE=false
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+#-------------------------------------------------------------------------------
+# Show Help Message
+#-------------------------------------------------------------------------------
+show_help() {
+    echo ""
+    echo "HCL DX Composer - Setup Script"
+    echo ""
+    echo "Usage: ./scripts/setup.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --skip-prompts    Skip interactive prompts and use defaults"
+    echo "  --help, -h        Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./scripts/setup.sh                  # Interactive setup"
+    echo "  ./scripts/setup.sh --skip-prompts   # Quick setup with defaults"
+    echo ""
+    echo "Documentation: docs/HCL-DX-INTEGRATION.md"
+    echo ""
+}
+
+#-------------------------------------------------------------------------------
+# Prompt user for input with default value
+# Usage: prompt_input "Question" "default_value" variable_name
+#-------------------------------------------------------------------------------
+prompt_input() {
+    local question="$1"
+    local default="$2"
+    local var_name="$3"
+    local value=""
+    
+    if [ "$INTERACTIVE" = true ]; then
+        if [ -n "$default" ]; then
+            read -p "$question [$default]: " value
+            value="${value:-$default}"
+        else
+            read -p "$question: " value
+        fi
+    else
+        value="$default"
+    fi
+    
+    eval "$var_name=\"$value\""
+}
+
+#-------------------------------------------------------------------------------
+# Prompt user for yes/no with default
+# Usage: prompt_yes_no "Question" "Y" (returns 0 for yes, 1 for no)
+#-------------------------------------------------------------------------------
+prompt_yes_no() {
+    local question="$1"
+    local default="${2:-N}"
+    
+    if [ "$INTERACTIVE" = false ]; then
+        [[ "$default" =~ ^[Yy]$ ]] && return 0 || return 1
+    fi
+    
+    local prompt
+    if [[ "$default" =~ ^[Yy]$ ]]; then
+        prompt="$question [Y/n]: "
+    else
+        prompt="$question [y/N]: "
+    fi
+    
+    read -p "$prompt" answer
+    answer="${answer:-$default}"
+    [[ "$answer" =~ ^[Yy]$ ]] && return 0 || return 1
+}
+
+#-------------------------------------------------------------------------------
+# Prompt for secret input (hidden)
+# Usage: prompt_secret "Question" variable_name
+#-------------------------------------------------------------------------------
+prompt_secret() {
+    local question="$1"
+    local var_name="$2"
+    local value=""
+    
+    if [ "$INTERACTIVE" = true ]; then
+        read -s -p "$question: " value
+        echo ""
+    fi
+    
+    eval "$var_name=\"$value\""
+}
+
+#-------------------------------------------------------------------------------
+# Print section header
+#-------------------------------------------------------------------------------
+print_section() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  $1${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+#-------------------------------------------------------------------------------
+# Print info box
+#-------------------------------------------------------------------------------
+print_info() {
+    echo -e "${BLUE}ℹ $1${NC}"
+}
+
+# Parse arguments before anything else
+parse_args "$@"
 
 #-------------------------------------------------------------------------------
 # Detect OS and Distribution
@@ -144,9 +310,12 @@ print_error() {
 }
 
 #-------------------------------------------------------------------------------
-# Check prerequisites
+# STEP 1: Check Prerequisites
+# Verify that required software is installed before proceeding
 #-------------------------------------------------------------------------------
-print_step "Checking prerequisites..."
+print_section "STEP 1: Checking Prerequisites"
+print_info "Verifying required software is installed..."
+echo ""
 
 # Check Docker
 if command -v docker &> /dev/null; then
@@ -263,171 +432,421 @@ else
 fi
 
 #-------------------------------------------------------------------------------
-# Create environment file
+# Create environment file with interactive configuration
 #-------------------------------------------------------------------------------
-print_step "Setting up environment configuration..."
+print_section "STEP 2: Environment Configuration"
+
+# Cross-platform random secret generation
+generate_secret() {
+    local length=${1:-32}
+    if command -v openssl &> /dev/null; then
+        openssl rand -base64 "$length" 2>/dev/null | tr -d '\n' | head -c "$length"
+    elif [ -r /dev/urandom ]; then
+        tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c "$length"
+    elif command -v python3 &> /dev/null; then
+        python3 -c "import secrets; print(secrets.token_urlsafe($length)[:$length])"
+    elif command -v python &> /dev/null; then
+        python -c "import os, base64; print(base64.b64encode(os.urandom($length)).decode()[:$length])"
+    else
+        echo "$(date +%s%N)$$" | sha256sum 2>/dev/null | head -c "$length" || \
+        echo "$(date +%s)$$RANDOM" | md5sum 2>/dev/null | head -c "$length" || \
+        echo "change_this_secret_$(date +%s)"
+    fi
+}
 
 if [ -f ".env" ]; then
     print_warning ".env file already exists"
-    read -p "Do you want to recreate it? (y/N): " recreate
-    if [[ ! $recreate =~ ^[Yy]$ ]]; then
-        print_success "Keeping existing .env file"
-    else
+    if prompt_yes_no "Do you want to reconfigure it?" "N"; then
+        cp .env ".env.backup.$(date +%Y%m%d_%H%M%S)"
+        print_info "Backup saved to .env.backup.*"
         rm .env
+    else
+        print_success "Keeping existing .env file"
     fi
 fi
 
 if [ ! -f ".env" ]; then
-    echo "Creating .env file from template..."
+    echo ""
+    print_info "We'll now configure your environment step by step."
+    print_info "Press Enter to accept default values shown in [brackets]."
+    echo ""
     
-    # Cross-platform random secret generation
-    generate_secret() {
-        local length=${1:-32}
-        if command -v openssl &> /dev/null; then
-            openssl rand -base64 "$length" 2>/dev/null | tr -d '\n' | head -c "$length"
-        elif [ -r /dev/urandom ]; then
-            tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c "$length"
-        elif command -v python3 &> /dev/null; then
-            python3 -c "import secrets; print(secrets.token_urlsafe($length)[:$length])"
-        elif command -v python &> /dev/null; then
-            python -c "import os, base64; print(base64.b64encode(os.urandom($length)).decode()[:$length])"
+    #---------------------------------------------------------------------------
+    # Database Configuration
+    #---------------------------------------------------------------------------
+    print_step "Database Configuration"
+    print_info "PostgreSQL database settings for storing application data."
+    echo ""
+    
+    prompt_input "Database name" "hcl_dx_staging" POSTGRES_DB
+    prompt_input "Database user" "hcldx" POSTGRES_USER
+    DB_PASSWORD=$(generate_secret 16)
+    if [ "$INTERACTIVE" = true ]; then
+        echo -e "Database password: ${YELLOW}[auto-generated]${NC}"
+        if prompt_yes_no "Generate a secure random password?" "Y"; then
+            print_success "Secure password generated"
         else
-            # Fallback: use date and process info (less secure, but works everywhere)
-            echo "$(date +%s%N)$$" | sha256sum 2>/dev/null | head -c "$length" || \
-            echo "$(date +%s)$$RANDOM" | md5sum 2>/dev/null | head -c "$length" || \
-            echo "change_this_secret_$(date +%s)"
+            prompt_secret "Enter database password" DB_PASSWORD
         fi
-    }
+    fi
+    prompt_input "Database port" "5432" POSTGRES_PORT
     
-    # Generate random secrets
+    #---------------------------------------------------------------------------
+    # Backend Configuration
+    #---------------------------------------------------------------------------
+    print_step "Backend API Configuration"
+    print_info "Settings for the Node.js backend server."
+    echo ""
+    
+    prompt_input "Backend port" "3001" BACKEND_PORT
     JWT_SECRET=$(generate_secret 32)
     SESSION_SECRET=$(generate_secret 32)
-    DB_PASSWORD=$(generate_secret 16)
-
+    print_success "JWT and session secrets auto-generated"
+    
+    #---------------------------------------------------------------------------
+    # Frontend Configuration
+    #---------------------------------------------------------------------------
+    print_step "Frontend Configuration"
+    print_info "Settings for the React frontend application."
+    echo ""
+    
+    prompt_input "Frontend port" "3000" FRONTEND_PORT
+    prompt_input "API base URL" "http://localhost:${BACKEND_PORT}/api" VITE_API_BASE_URL
+    
+    #---------------------------------------------------------------------------
+    # LDAP Configuration
+    #---------------------------------------------------------------------------
+    print_step "LDAP/Active Directory Configuration"
+    print_info "Configure connection to your organization's Active Directory."
+    print_info "This enables enterprise SSO authentication."
+    echo ""
+    
+    CONFIGURE_LDAP=false
+    if [ "$INTERACTIVE" = true ]; then
+        if prompt_yes_no "Configure LDAP/Active Directory now?" "N"; then
+            CONFIGURE_LDAP=true
+        fi
+    fi
+    
+    if [ "$CONFIGURE_LDAP" = true ]; then
+        prompt_input "LDAP server URL (e.g., ldap://ad-server:389)" "ldap://your-ad-server:389" LDAP_URL
+        prompt_input "Base DN (e.g., DC=company,DC=com)" "DC=domain,DC=com" LDAP_BASE_DN
+        prompt_input "Bind DN (service account)" "CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com" LDAP_BIND_DN
+        prompt_secret "Bind password" LDAP_BIND_PASSWORD
+        LDAP_BIND_PASSWORD="${LDAP_BIND_PASSWORD:-your_ldap_password}"
+        prompt_input "User search base" "OU=Users,DC=domain,DC=com" LDAP_USER_SEARCH_BASE
+        prompt_input "Group search base" "OU=Groups,DC=domain,DC=com" LDAP_GROUP_SEARCH_BASE
+    else
+        LDAP_URL="ldap://your-ad-server:389"
+        LDAP_BASE_DN="DC=domain,DC=com"
+        LDAP_BIND_DN="CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com"
+        LDAP_BIND_PASSWORD="your_ldap_password"
+        LDAP_USER_SEARCH_BASE="OU=Users,DC=domain,DC=com"
+        LDAP_GROUP_SEARCH_BASE="OU=Groups,DC=domain,DC=com"
+        print_warning "LDAP not configured. Update .env file later to enable SSO."
+    fi
+    
+    #---------------------------------------------------------------------------
+    # HCL DX Configuration
+    #---------------------------------------------------------------------------
+    print_step "HCL Digital Experience Configuration"
+    print_info "Configure connection to your HCL DX server for content management."
+    echo ""
+    
+    CONFIGURE_DX=false
+    if [ "$INTERACTIVE" = true ]; then
+        if prompt_yes_no "Configure HCL DX integration now?" "N"; then
+            CONFIGURE_DX=true
+        fi
+    fi
+    
+    if [ "$CONFIGURE_DX" = true ]; then
+        prompt_input "HCL DX hostname (e.g., dx.company.com)" "your-dx-server.domain.com" HCL_DX_HOST
+        prompt_input "HCL DX port" "443" HCL_DX_PORT
+        prompt_input "Protocol (http/https)" "https" HCL_DX_PROTOCOL
+        prompt_secret "HCL DX API key" HCL_DX_API_KEY
+        HCL_DX_API_KEY="${HCL_DX_API_KEY:-your_dx_api_key}"
+        prompt_input "WCM Library name" "Web Content" HCL_DX_WCM_LIBRARY
+        HCL_DX_DAM_BASE_URL="${HCL_DX_PROTOCOL}://${HCL_DX_HOST}/dx/api/dam/v1"
+        HCL_DX_WCM_BASE_URL="${HCL_DX_PROTOCOL}://${HCL_DX_HOST}/wps/mycontenthandler/wcmrest"
+    else
+        HCL_DX_HOST="your-dx-server.domain.com"
+        HCL_DX_PORT="443"
+        HCL_DX_PROTOCOL="https"
+        HCL_DX_API_KEY="your_dx_api_key"
+        HCL_DX_DAM_BASE_URL="https://your-dx-server/dx/api/dam/v1"
+        HCL_DX_WCM_BASE_URL="https://your-dx-server/wps/mycontenthandler/wcmrest"
+        HCL_DX_WCM_LIBRARY="Web Content"
+        print_warning "HCL DX not configured. Update .env file later to enable integration."
+    fi
+    
+    #---------------------------------------------------------------------------
+    # AI Configuration (Optional)
+    #---------------------------------------------------------------------------
+    print_step "AI Image Generation (Optional)"
+    print_info "Enable AI-powered image generation using OpenAI DALL-E or Stability AI."
+    echo ""
+    
+    CONFIGURE_AI=false
+    if [ "$INTERACTIVE" = true ]; then
+        if prompt_yes_no "Configure AI image generation?" "N"; then
+            CONFIGURE_AI=true
+        fi
+    fi
+    
+    OPENAI_API_KEY=""
+    STABILITY_API_KEY=""
+    AI_IMAGE_PROVIDER="openai"
+    
+    if [ "$CONFIGURE_AI" = true ]; then
+        echo ""
+        echo "Select AI provider:"
+        echo "  1) OpenAI (DALL-E) - https://platform.openai.com/"
+        echo "  2) Stability AI - https://stability.ai/"
+        echo ""
+        read -p "Enter choice [1]: " ai_choice
+        ai_choice="${ai_choice:-1}"
+        
+        if [ "$ai_choice" = "2" ]; then
+            AI_IMAGE_PROVIDER="stability"
+            prompt_secret "Enter Stability AI API key" STABILITY_API_KEY
+        else
+            AI_IMAGE_PROVIDER="openai"
+            prompt_secret "Enter OpenAI API key" OPENAI_API_KEY
+        fi
+    fi
+    
+    #---------------------------------------------------------------------------
+    # Write configuration file
+    #---------------------------------------------------------------------------
+    print_step "Writing configuration..."
+    
     cat > .env << EOF
 #===============================================================================
 # HCL DX Composer - Environment Configuration
-# Generated on $(date)
+# 
+# Generated on: $(date)
+# Generated by: setup.sh v2.0.0
+#
+# IMPORTANT: This file contains sensitive information.
+# - Do NOT commit this file to version control
+# - Keep this file secure with restricted permissions
+# - Backup this file before making changes
 #===============================================================================
 
-# Environment
+#-------------------------------------------------------------------------------
+# Environment Mode
+# Options: development, production, staging
+# - production: Optimized builds, minified assets, error logging
+# - development: Hot reload, detailed errors, debug logging
+#-------------------------------------------------------------------------------
 NODE_ENV=production
 
-#-------------------------------------------------------------------------------
-# Database Configuration
-#-------------------------------------------------------------------------------
-POSTGRES_DB=hcl_dx_staging
-POSTGRES_USER=hcldx
+#===============================================================================
+# DATABASE CONFIGURATION
+# 
+# PostgreSQL database for storing:
+# - User accounts and sessions
+# - Content metadata and workflows
+# - Application settings and audit logs
+#===============================================================================
+POSTGRES_DB=${POSTGRES_DB}
+POSTGRES_USER=${POSTGRES_USER}
 POSTGRES_PASSWORD=${DB_PASSWORD}
-POSTGRES_PORT=5432
+POSTGRES_PORT=${POSTGRES_PORT}
 
-#-------------------------------------------------------------------------------
-# Backend Configuration
-#-------------------------------------------------------------------------------
-BACKEND_PORT=3001
+#===============================================================================
+# BACKEND API CONFIGURATION
+# 
+# Node.js Express server settings
+# JWT_SECRET: Used for signing authentication tokens (keep secret!)
+# SESSION_SECRET: Used for encrypting session data (keep secret!)
+#===============================================================================
+BACKEND_PORT=${BACKEND_PORT}
 JWT_SECRET=${JWT_SECRET}
 SESSION_SECRET=${SESSION_SECRET}
 
-#-------------------------------------------------------------------------------
-# Frontend Configuration
-#-------------------------------------------------------------------------------
-FRONTEND_PORT=3000
-VITE_API_BASE_URL=http://localhost:3001/api
+#===============================================================================
+# FRONTEND CONFIGURATION
+# 
+# React application settings
+# VITE_API_BASE_URL: Backend API endpoint for frontend to connect to
+#===============================================================================
+FRONTEND_PORT=${FRONTEND_PORT}
+VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-#-------------------------------------------------------------------------------
-# LDAP/Active Directory Configuration
-# Update these with your organization's LDAP settings
-#-------------------------------------------------------------------------------
-LDAP_URL=ldap://your-ad-server:389
-LDAP_BASE_DN=DC=domain,DC=com
-LDAP_BIND_DN=CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com
-LDAP_BIND_PASSWORD=your_ldap_password
-LDAP_USER_SEARCH_BASE=OU=Users,DC=domain,DC=com
-LDAP_GROUP_SEARCH_BASE=OU=Groups,DC=domain,DC=com
+#===============================================================================
+# LDAP / ACTIVE DIRECTORY CONFIGURATION
+# 
+# Enterprise Single Sign-On (SSO) settings
+# Connect to your organization's Active Directory for user authentication
+#
+# LDAP_URL: Your AD server (ldap:// for port 389, ldaps:// for port 636)
+# LDAP_BASE_DN: Root of your directory tree
+# LDAP_BIND_DN: Service account with read access to AD
+# LDAP_BIND_PASSWORD: Service account password
+#===============================================================================
+LDAP_URL=${LDAP_URL}
+LDAP_BASE_DN=${LDAP_BASE_DN}
+LDAP_BIND_DN=${LDAP_BIND_DN}
+LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
+LDAP_USER_SEARCH_BASE=${LDAP_USER_SEARCH_BASE}
+LDAP_GROUP_SEARCH_BASE=${LDAP_GROUP_SEARCH_BASE}
 
-#-------------------------------------------------------------------------------
-# HCL DX Configuration
-# Update these with your HCL DX server details
-#-------------------------------------------------------------------------------
-HCL_DX_HOST=your-dx-server.domain.com
-HCL_DX_PORT=443
-HCL_DX_PROTOCOL=https
-HCL_DX_API_KEY=your_dx_api_key
-HCL_DX_DAM_BASE_URL=https://your-dx-server/dx/api/dam/v1
-HCL_DX_WCM_BASE_URL=https://your-dx-server/wps/mycontenthandler/wcmrest
-HCL_DX_WCM_LIBRARY=Web Content
+#===============================================================================
+# HCL DIGITAL EXPERIENCE CONFIGURATION
+# 
+# Integration with HCL DX for:
+# - Web Content Management (WCM)
+# - Digital Asset Management (DAM)
+# - Content publishing and syndication
+#
+# Get API credentials from your HCL DX administrator
+#===============================================================================
+HCL_DX_HOST=${HCL_DX_HOST}
+HCL_DX_PORT=${HCL_DX_PORT}
+HCL_DX_PROTOCOL=${HCL_DX_PROTOCOL}
+HCL_DX_API_KEY=${HCL_DX_API_KEY}
+HCL_DX_DAM_BASE_URL=${HCL_DX_DAM_BASE_URL}
+HCL_DX_WCM_BASE_URL=${HCL_DX_WCM_BASE_URL}
+HCL_DX_WCM_LIBRARY=${HCL_DX_WCM_LIBRARY}
 
-#-------------------------------------------------------------------------------
-# LTPA2 SSO Configuration (Optional)
-#-------------------------------------------------------------------------------
+#===============================================================================
+# LTPA2 SSO CONFIGURATION (Optional)
+# 
+# IBM/HCL Lightweight Third-Party Authentication
+# Enables seamless SSO between this app and HCL DX/WebSphere
+# Contact your WebSphere administrator for these values
+#===============================================================================
 LTPA2_SECRET_KEY=
 LTPA2_REALM=
 
-#-------------------------------------------------------------------------------
-# AI Image Generation (Optional)
-# Get API keys from: https://platform.openai.com/ or https://stability.ai/
-#-------------------------------------------------------------------------------
-OPENAI_API_KEY=
-STABILITY_API_KEY=
-AI_IMAGE_PROVIDER=openai
+#===============================================================================
+# AI IMAGE GENERATION (Optional)
+# 
+# Enable AI-powered image generation for content creation
+# 
+# OpenAI (DALL-E): https://platform.openai.com/api-keys
+# Stability AI: https://platform.stability.ai/account/keys
+#
+# AI_IMAGE_PROVIDER: 'openai' or 'stability'
+#===============================================================================
+OPENAI_API_KEY=${OPENAI_API_KEY}
+STABILITY_API_KEY=${STABILITY_API_KEY}
+AI_IMAGE_PROVIDER=${AI_IMAGE_PROVIDER}
 
-#-------------------------------------------------------------------------------
-# Upload Configuration
-#-------------------------------------------------------------------------------
+#===============================================================================
+# UPLOAD CONFIGURATION
+# 
+# MAX_UPLOAD_SIZE: Maximum file upload size in bytes
+# Default: 52428800 (50 MB)
+#===============================================================================
 MAX_UPLOAD_SIZE=52428800
 EOF
 
-    print_success ".env file created"
-    print_warning "Please update .env with your actual configuration values"
+    print_success ".env file created successfully!"
 fi
 
 #-------------------------------------------------------------------------------
-# Create required directories
+# STEP 3: Create Required Directories
 #-------------------------------------------------------------------------------
-print_step "Creating required directories..."
+print_section "STEP 3: Creating Directories"
 
 mkdir -p uploads/ai-generated
 mkdir -p uploads/thumbnails
 mkdir -p logs
+mkdir -p backups
 
-# Create .gitkeep files
+# Create .gitkeep files to preserve empty directories in git
 touch uploads/.gitkeep
 touch uploads/ai-generated/.gitkeep
 touch uploads/thumbnails/.gitkeep
 touch logs/.gitkeep
+touch backups/.gitkeep
 
-print_success "Directories created"
+print_success "Created: uploads/, uploads/ai-generated/, uploads/thumbnails/"
+print_success "Created: logs/, backups/"
 
 #-------------------------------------------------------------------------------
-# Set permissions
+# STEP 4: Set Permissions
 #-------------------------------------------------------------------------------
-print_step "Setting permissions..."
+print_section "STEP 4: Setting Permissions"
 
+# Make scripts executable
 chmod +x scripts/*.sh 2>/dev/null || true
+print_success "Scripts marked as executable"
+
+# Secure the .env file (readable only by owner)
 chmod 600 .env
+print_success ".env file secured (chmod 600)"
 
-print_success "Permissions set"
-
-#-------------------------------------------------------------------------------
-# Summary
-#-------------------------------------------------------------------------------
-echo -e "\n${GREEN}"
+#===============================================================================
+# SETUP COMPLETE - Summary and Next Steps
+#===============================================================================
+echo ""
+echo -e "${GREEN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║                    Setup Complete!                           ║"
+echo "║                    ✓ Setup Complete!                         ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-echo -e "Next steps:"
-echo -e "  1. ${YELLOW}Edit .env file${NC} with your configuration values"
-echo -e "     - LDAP/Active Directory settings"
-echo -e "     - HCL DX server details"
-echo -e "     - AI API keys (optional)"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}  Configuration Summary${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  2. ${YELLOW}Deploy the application${NC}:"
-echo -e "     ${BLUE}./scripts/deploy.sh${NC}"
+echo -e "  Database:     ${GREEN}PostgreSQL${NC} on port ${YELLOW}${POSTGRES_PORT:-5432}${NC}"
+echo -e "  Backend API:  ${GREEN}Node.js${NC} on port ${YELLOW}${BACKEND_PORT:-3001}${NC}"
+echo -e "  Frontend:     ${GREEN}React${NC} on port ${YELLOW}${FRONTEND_PORT:-3000}${NC}"
 echo ""
-echo -e "  3. ${YELLOW}For local development${NC}:"
-echo -e "     ${BLUE}./scripts/dev.sh${NC}"
+
+# Check what needs configuration
+NEEDS_CONFIG=false
+if grep -q "your-ad-server" .env 2>/dev/null; then
+    echo -e "  LDAP:         ${YELLOW}⚠ Not configured${NC}"
+    NEEDS_CONFIG=true
+else
+    echo -e "  LDAP:         ${GREEN}✓ Configured${NC}"
+fi
+
+if grep -q "your-dx-server" .env 2>/dev/null; then
+    echo -e "  HCL DX:       ${YELLOW}⚠ Not configured${NC}"
+    NEEDS_CONFIG=true
+else
+    echo -e "  HCL DX:       ${GREEN}✓ Configured${NC}"
+fi
+
+if grep -q "OPENAI_API_KEY=$" .env 2>/dev/null && grep -q "STABILITY_API_KEY=$" .env 2>/dev/null; then
+    echo -e "  AI Features:  ${BLUE}○ Optional (not configured)${NC}"
+else
+    echo -e "  AI Features:  ${GREEN}✓ Configured${NC}"
+fi
+
 echo ""
-echo -e "Documentation: ${BLUE}docs/HCL-DX-INTEGRATION.md${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}  Next Steps${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+if [ "$NEEDS_CONFIG" = true ]; then
+    echo -e "  ${YELLOW}1.${NC} Edit ${BLUE}.env${NC} file to configure:"
+    grep -q "your-ad-server" .env 2>/dev/null && echo -e "     • LDAP/Active Directory settings"
+    grep -q "your-dx-server" .env 2>/dev/null && echo -e "     • HCL DX server details"
+    echo ""
+    echo -e "  ${YELLOW}2.${NC} Deploy the application:"
+    echo -e "     ${BLUE}./scripts/deploy.sh --build${NC}"
+else
+    echo -e "  ${YELLOW}1.${NC} Deploy the application:"
+    echo -e "     ${BLUE}./scripts/deploy.sh --build${NC}"
+fi
+
+echo ""
+echo -e "  ${YELLOW}Other commands:${NC}"
+echo -e "     ${BLUE}./scripts/deploy.sh --help${NC}      Show deployment options"
+echo -e "     ${BLUE}./scripts/dev.sh${NC}                Start local development"
+echo -e "     ${BLUE}./scripts/health-check.sh${NC}       Check service status"
+echo -e "     ${BLUE}./scripts/backup.sh${NC}             Backup database & files"
+echo ""
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  Documentation: ${BLUE}docs/HCL-DX-INTEGRATION.md${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""

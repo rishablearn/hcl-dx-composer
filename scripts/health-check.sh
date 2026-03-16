@@ -2,8 +2,45 @@
 
 #===============================================================================
 # HCL DX Composer - Health Check Script
-# This script checks the health of all services
-# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
+# 
+# DESCRIPTION:
+#   Monitor the health and status of all application services.
+#   Checks Docker containers, service endpoints, database connectivity,
+#   and resource usage.
+#
+# USAGE:
+#   ./scripts/health-check.sh [OPTIONS]
+#
+# OPTIONS:
+#   --json       Output results in JSON format (for monitoring tools)
+#   --quiet      Only show errors and warnings
+#   --help, -h   Show this help message
+#
+# CHECKS PERFORMED:
+#   1. Docker container status (running/stopped)
+#   2. Backend API health endpoint (/api/health)
+#   3. Frontend accessibility
+#   4. Database connection (PostgreSQL)
+#   5. Resource usage (CPU, memory)
+#   6. Disk space (uploads, backups)
+#
+# EXIT CODES:
+#   0 - All services healthy
+#   1 - One or more services unhealthy
+#   2 - Critical error (Docker not running, etc.)
+#
+# MONITORING INTEGRATION:
+#   # Nagios/NRPE
+#   command[check_hcldx]=/path/to/scripts/health-check.sh --quiet
+#   
+#   # Prometheus (with node_exporter textfile collector)
+#   */5 * * * * /path/to/scripts/health-check.sh --json > /var/lib/node_exporter/hcldx.prom
+#
+# COMPATIBLE WITH:
+#   macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine Linux
+#
+# AUTHOR: HCL DX Composer Team
+# VERSION: 2.0.0
 #===============================================================================
 
 #-------------------------------------------------------------------------------

@@ -2,8 +2,46 @@
 
 #===============================================================================
 # HCL DX Composer - Deployment Script
-# This script deploys the application using Docker Compose
-# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
+# 
+# DESCRIPTION:
+#   Deploy, manage, and monitor the HCL DX Composer application using Docker.
+#   This script handles building, starting, stopping, and monitoring containers.
+#
+# USAGE:
+#   ./scripts/deploy.sh [COMMAND] [OPTIONS]
+#
+# COMMANDS:
+#   (default)     Start all services
+#   start         Start all services (same as default)
+#   stop          Stop all services gracefully
+#   restart       Restart all services
+#   status        Show service status and resource usage
+#   logs          View container logs (use -f to follow)
+#   rebuild       Rebuild and restart a specific service
+#
+# OPTIONS:
+#   --build       Build/rebuild Docker images before starting
+#   --force       Force recreate containers
+#   -f, --follow  Follow log output (with logs command)
+#   --help, -h    Show this help message
+#
+# EXAMPLES:
+#   ./scripts/deploy.sh                    # Start all services
+#   ./scripts/deploy.sh --build            # Build and start
+#   ./scripts/deploy.sh stop               # Stop all services
+#   ./scripts/deploy.sh logs -f            # Follow logs
+#   ./scripts/deploy.sh rebuild backend    # Rebuild backend only
+#   ./scripts/deploy.sh status             # Check service status
+#
+# PREREQUISITES:
+#   - Docker and Docker Compose installed
+#   - .env file configured (run setup.sh first)
+#
+# COMPATIBLE WITH:
+#   macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine Linux
+#
+# AUTHOR: HCL DX Composer Team
+# VERSION: 2.0.0
 #===============================================================================
 
 set -e
@@ -158,18 +196,44 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Usage: $0 [OPTIONS]"
             echo ""
-            echo "Options:"
-            echo "  --build, -b       Build images before starting"
-            echo "  --foreground, -f  Run in foreground (don't detach)"
-            echo "  --recreate, -r    Force recreate containers"
-            echo "  --stop, -s        Stop running containers"
-            echo "  --down, -d        Stop and remove containers"
+            echo -e "${GREEN}HCL DX Composer - Deployment Script${NC}"
+            echo ""
+            echo -e "${CYAN}USAGE:${NC}"
+            echo "  ./scripts/deploy.sh [OPTIONS]"
+            echo ""
+            echo -e "${CYAN}OPTIONS:${NC}"
+            echo "  --build, -b       Build/rebuild Docker images before starting"
+            echo "  --foreground, -f  Run in foreground (show logs, don't detach)"
+            echo "  --recreate, -r    Force recreate all containers"
+            echo "  --stop, -s        Stop running containers (preserves data)"
+            echo "  --down, -d        Stop and remove containers (preserves volumes)"
             echo "  --restart         Restart all services"
-            echo "  --logs, -l        Show container logs"
-            echo "  --status          Show container status"
+            echo "  --logs, -l        Show container logs (add -f to follow)"
+            echo "  --status          Show container status and resource usage"
             echo "  --help, -h        Show this help message"
+            echo ""
+            echo -e "${CYAN}EXAMPLES:${NC}"
+            echo "  ./scripts/deploy.sh                # Start all services"
+            echo "  ./scripts/deploy.sh --build        # Build and start (first time)"
+            echo "  ./scripts/deploy.sh --stop         # Stop services"
+            echo "  ./scripts/deploy.sh --logs         # View logs"
+            echo "  ./scripts/deploy.sh --restart      # Restart services"
+            echo ""
+            echo -e "${CYAN}COMMON WORKFLOWS:${NC}"
+            echo ""
+            echo -e "  ${YELLOW}First time deployment:${NC}"
+            echo "    1. ./scripts/setup.sh            # Configure environment"
+            echo "    2. ./scripts/deploy.sh --build   # Build and start"
+            echo ""
+            echo -e "  ${YELLOW}Update application:${NC}"
+            echo "    1. git pull                      # Get latest code"
+            echo "    2. ./scripts/deploy.sh --build   # Rebuild and restart"
+            echo ""
+            echo -e "  ${YELLOW}Troubleshooting:${NC}"
+            echo "    ./scripts/deploy.sh --logs       # Check logs"
+            echo "    ./scripts/health-check.sh        # Check service health"
+            echo ""
             exit 0
             ;;
         *)

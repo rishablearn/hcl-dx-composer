@@ -2,8 +2,39 @@
 
 #===============================================================================
 # HCL DX Composer - Backup Script
-# This script backs up the database and uploads
-# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
+# 
+# DESCRIPTION:
+#   Create backups of the PostgreSQL database and uploaded files.
+#   Backups are compressed and stored in the backups/ directory.
+#
+# USAGE:
+#   ./scripts/backup.sh [OPTIONS]
+#
+# OPTIONS:
+#   --db-only      Backup only the database
+#   --files-only   Backup only uploaded files
+#   --help, -h     Show this help message
+#
+# BACKUP LOCATION:
+#   backups/
+#   ├── db_backup_YYYYMMDD_HHMMSS.sql.gz      # Database dump
+#   └── uploads_backup_YYYYMMDD_HHMMSS.tar.gz # Uploaded files
+#
+# RESTORE DATABASE:
+#   gunzip -c backups/db_backup_*.sql.gz | docker-compose exec -T db psql -U hcldx
+#
+# RESTORE FILES:
+#   tar -xzf backups/uploads_backup_*.tar.gz -C ./
+#
+# SCHEDULE BACKUPS (cron):
+#   # Daily at 2 AM
+#   0 2 * * * /path/to/project/scripts/backup.sh >> /var/log/backup.log 2>&1
+#
+# COMPATIBLE WITH:
+#   macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine Linux
+#
+# AUTHOR: HCL DX Composer Team
+# VERSION: 2.0.0
 #===============================================================================
 
 set -e
