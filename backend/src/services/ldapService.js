@@ -49,12 +49,12 @@ class LdapService {
           return reject(new Error('LDAP service authentication failed'));
         }
 
-        // Search for the user
-        const searchFilter = `(|(sAMAccountName=${username})(userPrincipalName=${username})(mail=${username}))`;
+        // Search for the user - support both OpenLDAP (uid) and Active Directory (sAMAccountName)
+        const searchFilter = `(|(uid=${username})(sAMAccountName=${username})(userPrincipalName=${username})(mail=${username})(cn=${username}))`;
         const searchOptions = {
           filter: searchFilter,
           scope: 'sub',
-          attributes: ['dn', 'sAMAccountName', 'mail', 'displayName', 'memberOf', 'cn', 'givenName', 'sn']
+          attributes: ['dn', 'uid', 'sAMAccountName', 'mail', 'displayName', 'memberOf', 'cn', 'givenName', 'sn']
         };
 
         client.search(this.userSearchBase, searchOptions, (searchErr, searchRes) => {
@@ -68,7 +68,9 @@ class LdapService {
             userDN = entry.objectName;
             userData = {
               dn: entry.objectName,
-              username: entry.attributes.find(a => a.type === 'sAMAccountName')?.values[0] || username,
+              username: entry.attributes.find(a => a.type === 'uid')?.values[0] ||
+                        entry.attributes.find(a => a.type === 'sAMAccountName')?.values[0] || 
+                        username,
               email: entry.attributes.find(a => a.type === 'mail')?.values[0],
               displayName: entry.attributes.find(a => a.type === 'displayName')?.values[0] ||
                           entry.attributes.find(a => a.type === 'cn')?.values[0],
