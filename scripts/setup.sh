@@ -504,6 +504,36 @@ if [ ! -f ".env" ]; then
     print_success "JWT and session secrets auto-generated"
     
     #---------------------------------------------------------------------------
+    # Hostname Configuration
+    #---------------------------------------------------------------------------
+    print_step "Server Hostname Configuration"
+    print_info "Configure the hostname for accessing the application."
+    echo ""
+    
+    # Get current hostname
+    CURRENT_HOSTNAME=$(hostname 2>/dev/null || echo "localhost")
+    
+    echo -e "${CYAN}Hostname Options:${NC}"
+    echo ""
+    echo "  Your computer's hostname: ${YELLOW}${CURRENT_HOSTNAME}${NC}"
+    echo ""
+    echo "  Use the hostname (not localhost) for:"
+    echo "  • Accessing from other devices on the network"
+    echo "  • SSL certificates to work properly"
+    echo "  • Production deployments"
+    echo ""
+    
+    prompt_input "Server hostname" "${CURRENT_HOSTNAME}" APP_HOSTNAME
+    
+    # Validate hostname format
+    if [[ ! "$APP_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$ ]]; then
+        print_warning "Invalid hostname format, using: ${CURRENT_HOSTNAME}"
+        APP_HOSTNAME="${CURRENT_HOSTNAME}"
+    fi
+    
+    print_success "Hostname configured: ${APP_HOSTNAME}"
+    
+    #---------------------------------------------------------------------------
     # Frontend Configuration
     #---------------------------------------------------------------------------
     print_step "Frontend Configuration"
@@ -511,7 +541,10 @@ if [ ! -f ".env" ]; then
     echo ""
     
     prompt_input "Frontend port" "3000" FRONTEND_PORT
-    prompt_input "API base URL" "http://localhost:${BACKEND_PORT}/api" VITE_API_BASE_URL
+    
+    # API URL uses relative path - nginx proxies to backend
+    VITE_API_BASE_URL="/api"
+    print_info "API requests will be proxied through nginx at /api"
     
     #---------------------------------------------------------------------------
     # LDAP Configuration (API Integration)
@@ -867,10 +900,12 @@ if [ ! -f ".env" ]; then
     
     SSL_ENABLED="false"
     SSL_TYPE="none"
-    SSL_DOMAIN="localhost"
+    SSL_DOMAIN="${APP_HOSTNAME}"
     
     echo ""
     echo -e "${CYAN}Do you want to enable HTTPS/SSL?${NC}"
+    echo ""
+    echo "  Hostname: ${YELLOW}${APP_HOSTNAME}${NC}"
     echo ""
     echo "  1) No SSL (HTTP only) - Development/Testing"
     echo "  2) Self-signed certificate - Development/Internal use"
@@ -890,7 +925,8 @@ if [ ! -f ".env" ]; then
             SSL_ENABLED="true"
             SSL_TYPE="self-signed"
             echo ""
-            prompt_input "Domain name for certificate" "localhost" SSL_DOMAIN
+            SSL_DOMAIN="${APP_HOSTNAME}"
+            print_info "Generating certificate for: ${SSL_DOMAIN}"
             prompt_input "Certificate validity (days)" "365" SSL_VALIDITY_DAYS
             
             print_info "Generating self-signed certificate..."
@@ -1081,10 +1117,18 @@ JWT_SECRET=${JWT_SECRET}
 SESSION_SECRET=${SESSION_SECRET}
 
 #===============================================================================
+# SERVER HOSTNAME
+# 
+# The hostname used to access this application
+# Used for: SSL certificates, CORS, accessing from network
+#===============================================================================
+APP_HOSTNAME=${APP_HOSTNAME}
+
+#===============================================================================
 # FRONTEND CONFIGURATION
 # 
 # React application settings
-# VITE_API_BASE_URL: Backend API endpoint for frontend to connect to
+# VITE_API_BASE_URL: Uses /api - nginx proxies to backend
 #===============================================================================
 FRONTEND_PORT=${FRONTEND_PORT}
 VITE_API_BASE_URL=${VITE_API_BASE_URL}
@@ -1305,6 +1349,8 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${CYAN}  Configuration Summary${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+APP_HOSTNAME_CHECK=$(grep "^APP_HOSTNAME=" .env 2>/dev/null | cut -d'=' -f2)
+echo -e "  Hostname:     ${GREEN}${APP_HOSTNAME_CHECK:-localhost}${NC}"
 echo -e "  Database:     ${GREEN}PostgreSQL${NC} on port ${YELLOW}${POSTGRES_PORT:-5432}${NC}"
 echo -e "  Backend API:  ${GREEN}Node.js${NC} on port ${YELLOW}${BACKEND_PORT:-3001}${NC}"
 echo -e "  Frontend:     ${GREEN}React${NC} on port ${YELLOW}${FRONTEND_PORT:-3000}${NC}"
