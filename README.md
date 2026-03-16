@@ -106,10 +106,15 @@ This application works entirely through HCL DX REST APIs:
 
 Generate stunning visuals using AI and seamlessly integrate them into the Digital Asset Workflow.
 
-1. **AI Image Generation**:
-   - OpenAI DALL-E 3 integration
-   - Stability AI SDXL support
-   - Multiple style presets (Corporate, Marketing, Social Media, Minimal, Energetic)
+1. **AI Image Generation Providers**:
+
+   | Provider | Model | Free Tier | Best For |
+   |----------|-------|-----------|----------|
+   | **Google Gemini** | Gemini 2.5/3.1 Flash Image | ✅ 500 images/day | General purpose, fast |
+   | **Hugging Face** | FLUX.1, Stable Diffusion | ✅ Limited requests | Open-source, customizable |
+   | **OpenAI** | DALL-E 3 | ❌ Paid only | High quality, photorealistic |
+   | **Stability AI** | SDXL, SD3 | ❌ Paid only | Artistic, fine control |
+
 2. **Smart Prompt Enhancement**:
    - One-click prompt optimization
    - Brand-aware suggestions (Bharat Petroleum colors & style)

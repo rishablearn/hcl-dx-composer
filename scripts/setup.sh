@@ -620,10 +620,22 @@ if [ ! -f ".env" ]; then
     fi
     
     #---------------------------------------------------------------------------
-    # AI Configuration (Optional)
+    # AI Image Generation Configuration (Optional)
     #---------------------------------------------------------------------------
     print_step "AI Image Generation (Optional)"
-    print_info "Enable AI-powered image generation using OpenAI DALL-E or Stability AI."
+    echo ""
+    print_info "Generate images using AI and integrate them into the DAM workflow."
+    echo ""
+    echo -e "${CYAN}Available AI Providers:${NC}"
+    echo ""
+    echo "  ┌─────────────────┬──────────────────────┬─────────────┬──────────────────┐"
+    echo "  │ Provider        │ Model                │ Free Tier   │ Best For         │"
+    echo "  ├─────────────────┼──────────────────────┼─────────────┼──────────────────┤"
+    echo "  │ Google Gemini   │ Gemini Flash Image   │ ✓ 500/day   │ General, Fast    │"
+    echo "  │ Hugging Face    │ FLUX.1, Stable Diff  │ ✓ Limited   │ Open-source      │"
+    echo "  │ OpenAI          │ DALL-E 3             │ ✗ Paid      │ Photorealistic   │"
+    echo "  │ Stability AI    │ SDXL, SD3            │ ✗ Paid      │ Artistic         │"
+    echo "  └─────────────────┴──────────────────────┴─────────────┴──────────────────┘"
     echo ""
     
     CONFIGURE_AI=false
@@ -633,26 +645,74 @@ if [ ! -f ".env" ]; then
         fi
     fi
     
+    # Initialize AI provider variables
     OPENAI_API_KEY=""
     STABILITY_API_KEY=""
-    AI_IMAGE_PROVIDER="openai"
+    GOOGLE_AI_API_KEY=""
+    HUGGINGFACE_API_KEY=""
+    AI_IMAGE_PROVIDER="gemini"
     
     if [ "$CONFIGURE_AI" = true ]; then
         echo ""
-        echo "Select AI provider:"
-        echo "  1) OpenAI (DALL-E) - https://platform.openai.com/"
-        echo "  2) Stability AI - https://stability.ai/"
+        echo -e "${YELLOW}Select AI Provider:${NC}"
+        echo ""
+        echo "  1) Google Gemini (FREE) - Recommended for most users"
+        echo "     • 500 free images/day"
+        echo "     • Model: gemini-2.5-flash-image / gemini-3.1-flash-image-preview"
+        echo "     • Get API key: https://aistudio.google.com/apikey"
+        echo ""
+        echo "  2) Hugging Face (FREE) - Open-source models"
+        echo "     • Limited free inference API requests"
+        echo "     • Models: FLUX.1, Stable Diffusion XL"
+        echo "     • Get API key: https://huggingface.co/settings/tokens"
+        echo ""
+        echo "  3) OpenAI DALL-E (PAID) - High quality"
+        echo "     • Pay-per-image pricing"
+        echo "     • Model: DALL-E 3"
+        echo "     • Get API key: https://platform.openai.com/api-keys"
+        echo ""
+        echo "  4) Stability AI (PAID) - Fine artistic control"
+        echo "     • Pay-per-image pricing"
+        echo "     • Models: SDXL, Stable Diffusion 3"
+        echo "     • Get API key: https://platform.stability.ai/account/keys"
         echo ""
         read -p "Enter choice [1]: " ai_choice
         ai_choice="${ai_choice:-1}"
         
-        if [ "$ai_choice" = "2" ]; then
-            AI_IMAGE_PROVIDER="stability"
-            prompt_secret "Enter Stability AI API key" STABILITY_API_KEY
-        else
-            AI_IMAGE_PROVIDER="openai"
-            prompt_secret "Enter OpenAI API key" OPENAI_API_KEY
-        fi
+        case "$ai_choice" in
+            1)
+                AI_IMAGE_PROVIDER="gemini"
+                echo ""
+                print_info "Google Gemini selected (FREE tier available)"
+                prompt_secret "Enter Google AI API key (from AI Studio)" GOOGLE_AI_API_KEY
+                ;;
+            2)
+                AI_IMAGE_PROVIDER="huggingface"
+                echo ""
+                print_info "Hugging Face selected (FREE tier available)"
+                prompt_secret "Enter Hugging Face API token" HUGGINGFACE_API_KEY
+                prompt_input "Hugging Face model" "black-forest-labs/FLUX.1-schnell" HUGGINGFACE_MODEL
+                ;;
+            3)
+                AI_IMAGE_PROVIDER="openai"
+                echo ""
+                print_info "OpenAI DALL-E selected (Paid)"
+                prompt_secret "Enter OpenAI API key" OPENAI_API_KEY
+                ;;
+            4)
+                AI_IMAGE_PROVIDER="stability"
+                echo ""
+                print_info "Stability AI selected (Paid)"
+                prompt_secret "Enter Stability AI API key" STABILITY_API_KEY
+                ;;
+            *)
+                AI_IMAGE_PROVIDER="gemini"
+                print_warning "Invalid choice, defaulting to Google Gemini"
+                prompt_secret "Enter Google AI API key" GOOGLE_AI_API_KEY
+                ;;
+        esac
+        
+        print_success "AI provider configured: ${AI_IMAGE_PROVIDER}"
     fi
     
     #---------------------------------------------------------------------------
@@ -770,15 +830,47 @@ LTPA2_REALM=
 # AI IMAGE GENERATION (Optional)
 # 
 # Enable AI-powered image generation for content creation
-# 
-# OpenAI (DALL-E): https://platform.openai.com/api-keys
-# Stability AI: https://platform.stability.ai/account/keys
+# Multiple providers supported - choose based on your needs:
 #
-# AI_IMAGE_PROVIDER: 'openai' or 'stability'
+# FREE TIER OPTIONS:
+# ─────────────────────────────────────────────────────────────────────────────
+# Google Gemini (RECOMMENDED)
+#   • 500 free images/day
+#   • Models: gemini-2.5-flash-image, gemini-3.1-flash-image-preview
+#   • Get key: https://aistudio.google.com/apikey
+#
+# Hugging Face
+#   • Limited free API requests
+#   • Models: FLUX.1-schnell, FLUX.1-dev, stable-diffusion-xl
+#   • Get token: https://huggingface.co/settings/tokens
+#
+# PAID OPTIONS:
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenAI (DALL-E 3)
+#   • \$0.040-0.080 per image
+#   • Get key: https://platform.openai.com/api-keys
+#
+# Stability AI (SDXL, SD3)
+#   • Pay-per-credit pricing
+#   • Get key: https://platform.stability.ai/account/keys
+#
+# AI_IMAGE_PROVIDER: 'gemini', 'huggingface', 'openai', or 'stability'
 #===============================================================================
-OPENAI_API_KEY=${OPENAI_API_KEY}
-STABILITY_API_KEY=${STABILITY_API_KEY}
 AI_IMAGE_PROVIDER=${AI_IMAGE_PROVIDER}
+
+# Google Gemini (FREE - Recommended)
+GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
+
+# Hugging Face (FREE)
+HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+HUGGINGFACE_MODEL=${HUGGINGFACE_MODEL:-black-forest-labs/FLUX.1-schnell}
+
+# OpenAI DALL-E (Paid)
+OPENAI_API_KEY=${OPENAI_API_KEY}
+
+# Stability AI (Paid)
+STABILITY_API_KEY=${STABILITY_API_KEY}
 
 #===============================================================================
 # UPLOAD CONFIGURATION
