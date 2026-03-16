@@ -24,6 +24,8 @@ services:
       - openldap_data:/var/lib/ldap
       - openldap_config:/etc/ldap/slapd.d
       - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
+      - ./ldap/config/replication:/container/service/slapd/assets/config/replication
+      - ./ldap/config/admin:/container/service/slapd/assets/config/admin
     ports:
       - "${LDAP_PORT:-389}:389"
     networks:
