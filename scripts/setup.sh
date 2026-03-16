@@ -914,7 +914,7 @@ if [ ! -f ".env" ]; then
     echo ""
     echo -e "${CYAN}Do you want to enable HTTPS/SSL?${NC}"
     echo ""
-    echo "  Hostname: ${YELLOW}${APP_HOSTNAME}${NC}"
+    echo -e "  Hostname: ${YELLOW}${APP_HOSTNAME}${NC}"
     echo ""
     echo "  1) No SSL (HTTP only) - Development/Testing"
     echo "  2) Self-signed certificate - Development/Internal use"
