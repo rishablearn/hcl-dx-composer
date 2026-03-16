@@ -1,90 +1,174 @@
-# HCL Digital Experience Integration Guide
+# HCL Digital Experience - Pure API Integration Guide
 
-This document provides comprehensive guidance on integrating the HCL DX Composer application with HCL Digital Experience (DX) APIs, including the Web Content Manager (WCM) and Digital Asset Management (DAM) modules.
+This document provides comprehensive guidance for integrating HCL DX Composer with HCL Digital Experience (DX) using a **100% API-based approach**. All interactions with WCM (Web Content Manager) and DAM (Digital Asset Management) are performed through REST APIs - no direct server access required.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Authentication Methods](#authentication-methods)
-4. [WCM REST API Integration](#wcm-rest-api-integration)
-5. [DAM API Integration](#dam-api-integration)
-6. [Multilingual Content Support](#multilingual-content-support)
-7. [Workflow Integration](#workflow-integration)
-8. [Access Control Configuration](#access-control-configuration)
-9. [API Reference](#api-reference)
-10. [Troubleshooting](#troubleshooting)
+2. [API-Only Architecture](#api-only-architecture)
+3. [Prerequisites](#prerequisites)
+4. [API Authentication](#api-authentication)
+5. [WCM REST API Integration](#wcm-rest-api-integration)
+6. [DAM API Integration](#dam-api-integration)
+7. [Multilingual Content Support](#multilingual-content-support)
+8. [Workflow Integration](#workflow-integration)
+9. [Access Control Configuration](#access-control-configuration)
+10. [Complete API Reference](#complete-api-reference)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-The HCL DX Composer integrates with HCL Digital Experience through its REST APIs to provide:
+HCL DX Composer operates **entirely through REST APIs** - there is no need for:
+- Direct server access or SSH
+- File system access to HCL DX server
+- WebSphere console access (except for initial API enablement)
+- Direct database connections to HCL DX
 
-- **Headless WCM Content Management**: Create, edit, and publish content using Authoring Templates
-- **DAM Asset Management**: Upload, approve, and publish digital assets
-- **Workflow Orchestration**: Visual workflow stages with approval processes
-- **Multilingual Support**: Content creation in English, Hindi (हिंदी), and Marathi (मराठी)
-- **SSO Integration**: LTPA2 token-based Single Sign-On with HCL DX Portal
+### What You Can Do via API
 
-### Architecture
+| Feature | API Used | Description |
+|---------|----------|-------------|
+| **Content Creation** | WCM REST API | Create, edit, delete content items |
+| **Template Management** | WCM REST API | List and use Authoring Templates |
+| **Asset Upload** | DAM API | Upload images, videos, documents |
+| **Asset Management** | DAM API | Organize assets in collections |
+| **Publishing** | WCM/DAM API | Publish content and assets |
+| **Workflow** | WCM REST API | Submit, approve, reject content |
+| **User Auth** | LDAP/LTPA2 | Authenticate against Active Directory |
+
+### Key Benefits of API-Only Approach
+
+- **No Server Dependencies**: Deploy anywhere with network access to HCL DX APIs
+- **Cloud-Ready**: Run in Docker, Kubernetes, or any cloud platform
+- **Secure**: Only HTTPS API calls, no server credentials needed
+- **Scalable**: Horizontal scaling without server modifications
+- **Portable**: Same codebase works with any HCL DX instance
+
+---
+
+## API-Only Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    HCL DX Composer                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │   React     │  │   Express   │  │     PostgreSQL          │ │
-│  │  Frontend   │──│   Backend   │──│   Staging Database      │ │
-│  └─────────────┘  └──────┬──────┘  └─────────────────────────┘ │
-└────────────────────────────┼────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    HCL Digital Experience                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │  WCM REST   │  │   DAM API   │  │   Portal Security       │ │
-│  │    API      │  │             │  │   (LTPA2, LDAP)         │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         HCL DX Composer (API Client)                        │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐ │
+│  │     React       │  │    Express      │  │       PostgreSQL            │ │
+│  │    Frontend     │──│    Backend      │──│    Local Staging DB         │ │
+│  │                 │  │   (API Client)  │  │  (Draft/Approval Queue)     │ │
+│  └─────────────────┘  └────────┬────────┘  └─────────────────────────────┘ │
+└────────────────────────────────┼────────────────────────────────────────────┘
+                                 │
+                                 │ HTTPS REST API Calls
+                                 │ (No server access required)
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        HCL Digital Experience Server                         │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                         REST API Layer                                   ││
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐ ││
+│  │  │   WCM REST API  │  │    DAM API      │  │     Portal REST API     │ ││
+│  │  │  /wcmrest/*     │  │  /dx/api/dam/*  │  │    /wps/portal/*        │ ││
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────────────┘ ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                    HCL DX Internal Components                            ││
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌─────────────────┐   ││
+│  │  │    WCM     │  │    DAM     │  │  Workflow  │  │  LDAP/Security  │   ││
+│  │  │  Library   │  │ Repository │  │   Engine   │  │                 │   ││
+│  │  └────────────┘  └────────────┘  └────────────┘  └─────────────────┘   ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### API Communication Flow
+
+```
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   User Action    │────▶│  Composer API    │────▶│   HCL DX API     │
+│  (Browser UI)    │     │   (Backend)      │     │  (WCM/DAM)       │
+└──────────────────┘     └──────────────────┘     └──────────────────┘
+         │                        │                        │
+         │  1. Create Content     │                        │
+         │─────────────────────▶ │                        │
+         │                        │  2. POST /wcmrest/     │
+         │                        │──────────────────────▶│
+         │                        │                        │
+         │                        │  3. Content Created    │
+         │                        │◀──────────────────────│
+         │  4. Success Response   │                        │
+         │◀─────────────────────  │                        │
 ```
 
 ---
 
 ## Prerequisites
 
-### HCL DX Server Requirements
+### What You Need From Your HCL DX Administrator
+
+Since this application uses **API-only integration**, you need the following from your HCL DX administrator:
+
+| Item | Description | Example |
+|------|-------------|---------|
+| **API Base URL** | HCL DX server hostname | `https://dx.company.com` |
+| **API Key** | Authentication token for API calls | `abc123...` |
+| **WCM Library Name** | Target library for content | `Web Content` |
+| **DAM Access** | Confirmation DAM API is enabled | Yes/No |
+| **CORS Whitelist** | Your app domain added to CORS | `https://composer.company.com` |
+
+### HCL DX Server Requirements (Admin Side)
+
+Your HCL DX administrator needs to ensure:
 
 - HCL Digital Experience 9.5 CF213 or later
-- WCM REST API enabled
-- DAM module installed and configured
-- CORS configured to allow requests from the Composer application
+- WCM REST API enabled (`/wps/mycontenthandler/wcmrest`)
+- DAM API enabled (`/dx/api/dam/v1`)
+- CORS configured for your Composer domain
+- API Key generated for your application
 
-### Enable WCM REST API
+### Request API Access
 
-On your HCL DX server, ensure the WCM REST service is enabled:
+Send this request to your HCL DX administrator:
 
-```xml
-<!-- In wp_profile/config/cells/<cell>/applications/wcm.ear/deployment.xml -->
-<moduleRef name="wcm-rest-module">
-  <startingWeight>100</startingWeight>
-</moduleRef>
+```
+Subject: API Access Request for HCL DX Composer
+
+Please provide API access for the HCL DX Composer application:
+
+1. Generate an API Key with these permissions:
+   - WCM: Read/Write access to [Library Name]
+   - DAM: Read/Write/Upload to collections
+   - Workflow: Execute workflow actions
+
+2. Enable CORS for our application domain:
+   - Origin: https://[our-composer-domain]
+   - Methods: GET, POST, PUT, DELETE, OPTIONS
+   - Headers: Content-Type, Authorization, X-API-Key
+
+3. Provide the following endpoints:
+   - WCM REST API URL
+   - DAM API URL
+   - Portal URL (for LTPA2 SSO, if needed)
 ```
 
-### Configure CORS for API Access
+### CORS Configuration (Admin Reference)
 
-Add CORS headers in your HCL DX WebSphere configuration:
+For HCL DX administrators - add CORS headers:
 
 ```properties
-# Custom properties in WebSphere
+# WebSphere custom properties
 Access-Control-Allow-Origin: https://your-composer-domain.com
 Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
-Access-Control-Allow-Headers: Content-Type, Authorization, LtpaToken2
+Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key, LtpaToken2
 Access-Control-Allow-Credentials: true
 ```
 
 ---
 
-## Authentication Methods
+## API Authentication
 
 ### Method 1: API Key Authentication
 
@@ -519,15 +603,91 @@ tail -f /opt/HCL/wp_profile/logs/WebSphere_Portal/SystemOut.log
 
 ---
 
+## Quick Start: API Configuration
+
+### Minimum Configuration
+
+To get started with API-only integration, configure these environment variables:
+
+```env
+# Required: HCL DX API Endpoints
+HCL_DX_HOST=dx.company.com
+HCL_DX_PORT=443
+HCL_DX_PROTOCOL=https
+HCL_DX_API_KEY=your_api_key_here
+
+# API URLs (auto-generated from host, or set manually)
+HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
+HCL_DX_DAM_BASE_URL=https://dx.company.com/dx/api/dam/v1
+
+# Target WCM Library
+HCL_DX_WCM_LIBRARY=Web Content
+```
+
+### Test API Connectivity
+
+After configuration, test your API connection:
+
+```bash
+# Test WCM API
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     https://dx.company.com/wps/mycontenthandler/wcmrest/Library
+
+# Test DAM API
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     https://dx.company.com/dx/api/dam/v1/collections
+```
+
+### Verify in Application
+
+Run the health check to verify API connectivity:
+
+```bash
+./scripts/health-check.sh
+```
+
+Expected output:
+```
+✓ HCL DX WCM API: Connected
+✓ HCL DX DAM API: Connected
+✓ API Authentication: Valid
+```
+
+---
+
+## API Endpoints Summary
+
+### WCM REST API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/Library` | GET | List all WCM libraries |
+| `/Library/{id}/AuthoringTemplate` | GET | Get authoring templates |
+| `/Content` | POST | Create content |
+| `/Content/{id}` | GET/PUT/DELETE | Manage content |
+| `/Content/{id}/publish` | POST | Publish content |
+| `/Content/{id}/workflow-action` | POST | Execute workflow |
+
+### DAM API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/collections` | GET/POST | List/create collections |
+| `/collections/{id}/assets` | POST | Upload asset |
+| `/assets/{id}` | GET/PUT/DELETE | Manage asset |
+| `/assets/{id}/renditions` | GET | Get asset renditions |
+
+---
+
 ## References
 
 - [HCL WCM REST API Documentation](https://support.hcl-software.com/csm?id=kb_article&sysparm_article=KB0074521)
 - [HCL DX Experience API Explorer](https://github.com/HCL-TECH-SOFTWARE/experience-api-documentation)
 - [HCL DX API Access Documentation](https://help.hcl-software.com/digital-experience/9.5/CF233/get_started/product_overview/api_access/)
+- [HCL DAM API Reference](https://help.hcl-software.com/digital-experience/9.5/digital_asset_mgmt/dam_api.html)
 - [W3C Internationalization Guidelines](https://www.w3.org/International/)
-- [BCP 47 Language Tags](https://www.rfc-editor.org/rfc/bcp/bcp47.txt)
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 2.0 - Pure API Integration*
 *Last Updated: March 2026*

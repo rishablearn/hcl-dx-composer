@@ -547,28 +547,63 @@ if [ ! -f ".env" ]; then
     fi
     
     #---------------------------------------------------------------------------
-    # HCL DX Configuration
+    # HCL DX API Configuration (Pure API Integration)
     #---------------------------------------------------------------------------
-    print_step "HCL Digital Experience Configuration"
-    print_info "Configure connection to your HCL DX server for content management."
+    print_step "HCL Digital Experience API Configuration"
+    echo ""
+    print_info "This application integrates with HCL DX using REST APIs only."
+    print_info "No direct server access is required - just API credentials."
+    echo ""
+    echo -e "${CYAN}You will need from your HCL DX administrator:${NC}"
+    echo "  • API Key or credentials for authentication"
+    echo "  • HCL DX server hostname"
+    echo "  • WCM Library name for content storage"
+    echo "  • Confirmation that CORS is enabled for your domain"
     echo ""
     
     CONFIGURE_DX=false
     if [ "$INTERACTIVE" = true ]; then
-        if prompt_yes_no "Configure HCL DX integration now?" "N"; then
+        if prompt_yes_no "Configure HCL DX API integration now?" "Y"; then
             CONFIGURE_DX=true
         fi
     fi
     
     if [ "$CONFIGURE_DX" = true ]; then
+        echo ""
+        echo -e "${YELLOW}── WCM (Web Content Manager) API ──${NC}"
+        print_info "Used for creating and publishing content"
+        echo ""
         prompt_input "HCL DX hostname (e.g., dx.company.com)" "your-dx-server.domain.com" HCL_DX_HOST
         prompt_input "HCL DX port" "443" HCL_DX_PORT
         prompt_input "Protocol (http/https)" "https" HCL_DX_PROTOCOL
-        prompt_secret "HCL DX API key" HCL_DX_API_KEY
-        HCL_DX_API_KEY="${HCL_DX_API_KEY:-your_dx_api_key}"
         prompt_input "WCM Library name" "Web Content" HCL_DX_WCM_LIBRARY
-        HCL_DX_DAM_BASE_URL="${HCL_DX_PROTOCOL}://${HCL_DX_HOST}/dx/api/dam/v1"
+        
+        echo ""
+        echo -e "${YELLOW}── API Authentication ──${NC}"
+        print_info "API Key is the recommended authentication method"
+        echo ""
+        prompt_secret "HCL DX API Key (from Portal Admin)" HCL_DX_API_KEY
+        HCL_DX_API_KEY="${HCL_DX_API_KEY:-your_dx_api_key}"
+        
+        echo ""
+        echo -e "${YELLOW}── DAM (Digital Asset Management) API ──${NC}"
+        print_info "Used for uploading and managing images/files"
+        echo ""
+        
+        # Auto-generate API URLs from hostname
         HCL_DX_WCM_BASE_URL="${HCL_DX_PROTOCOL}://${HCL_DX_HOST}/wps/mycontenthandler/wcmrest"
+        HCL_DX_DAM_BASE_URL="${HCL_DX_PROTOCOL}://${HCL_DX_HOST}/dx/api/dam/v1"
+        
+        echo -e "  WCM API URL: ${GREEN}${HCL_DX_WCM_BASE_URL}${NC}"
+        echo -e "  DAM API URL: ${GREEN}${HCL_DX_DAM_BASE_URL}${NC}"
+        echo ""
+        
+        if prompt_yes_no "Use custom API URLs instead?" "N"; then
+            prompt_input "WCM REST API URL" "$HCL_DX_WCM_BASE_URL" HCL_DX_WCM_BASE_URL
+            prompt_input "DAM API URL" "$HCL_DX_DAM_BASE_URL" HCL_DX_DAM_BASE_URL
+        fi
+        
+        print_success "HCL DX API configuration complete"
     else
         HCL_DX_HOST="your-dx-server.domain.com"
         HCL_DX_PORT="443"
@@ -577,7 +612,8 @@ if [ ! -f ".env" ]; then
         HCL_DX_DAM_BASE_URL="https://your-dx-server/dx/api/dam/v1"
         HCL_DX_WCM_BASE_URL="https://your-dx-server/wps/mycontenthandler/wcmrest"
         HCL_DX_WCM_LIBRARY="Web Content"
-        print_warning "HCL DX not configured. Update .env file later to enable integration."
+        print_warning "HCL DX API not configured. Update .env file later."
+        print_info "See docs/HCL-DX-INTEGRATION.md for API configuration guide."
     fi
     
     #---------------------------------------------------------------------------

@@ -1,32 +1,51 @@
 # HCL DX Composer - DAM Workflow & WCM Headless Portal
 
-A modern, whitelabeled React application that acts as a headless composer and approval portal, deeply integrated with HCL Digital Experience (DX) Web Content Manager (WCM) and Digital Asset Management (DAM) APIs.
+A modern, whitelabeled React application that acts as a headless composer and approval portal for HCL Digital Experience (DX). This application integrates **100% through REST APIs** with WCM (Web Content Manager) and DAM (Digital Asset Management) - no direct server access required.
 
 **Current Theme**: Bharat Petroleum
 
+## 🔌 Pure API Integration
+
+This application works entirely through HCL DX REST APIs:
+
+| Integration | API Used | What It Does |
+|-------------|----------|--------------|
+| **Content Creation** | WCM REST API | Create, edit, publish content |
+| **Asset Management** | DAM API | Upload images, videos, documents |
+| **Publishing** | WCM/DAM API | Publish to HCL DX Portal |
+| **Workflows** | WCM REST API | Submit, approve, reject content |
+| **Authentication** | LDAP/LTPA2 | Enterprise SSO |
+
+**No server access needed** - just API credentials from your HCL DX administrator.
+
 ## Key Features
 
-- **DAM Workflow Engine** - Upload, stage, approve, and publish digital assets
-- **WCM Headless Composer** - Dynamic form generation from authoring templates
+- **DAM Workflow Engine** - Upload, stage, approve, and publish digital assets via DAM API
+- **WCM Headless Composer** - Dynamic form generation from authoring templates via WCM API
 - **Microsite** - Public-facing portal for viewing published content
 - **Multilingual Support** - Full i18n for English, Hindi (हिंदी), and Marathi (मराठी)
-- **HCL DX Integration** - Seamless sync with WCM and DAM APIs
+- **Pure API Integration** - All HCL DX operations via REST APIs
 - **LDAP/SSO Authentication** - Active Directory + LTPA2 token support
 
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Docker Compose                          │
+│                    HCL DX Composer (API Client)                  │
 ├─────────────────┬─────────────────────┬─────────────────────────┤
 │    Frontend     │      Backend        │       Database          │
-│   React/Vite    │    Node/Express     │      PostgreSQL         │
-│   Port: 3000    │    Port: 3001       │      Port: 5432         │
-├─────────────────┴─────────────────────┴─────────────────────────┤
-│                    External Integrations                         │
+│   React/Vite    │   Node/Express      │      PostgreSQL         │
+│   Port: 3000    │   (API Client)      │   (Local Staging)       │
+│                 │   Port: 3001        │      Port: 5432         │
+└─────────────────┴──────────┬──────────┴─────────────────────────┘
+                             │
+                             │ HTTPS REST API Calls
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  HCL Digital Experience Server                   │
 ├─────────────────┬─────────────────────┬─────────────────────────┤
-│  LDAP/Active    │    HCL DX DAM       │     HCL DX WCM          │
-│   Directory     │      API            │       API               │
+│  WCM REST API   │    DAM REST API     │   Portal/LDAP           │
+│  /wcmrest/*     │   /dx/api/dam/*     │   Authentication        │
 └─────────────────┴─────────────────────┴─────────────────────────┘
 ```
 
@@ -122,62 +141,96 @@ Generate stunning visuals using AI and seamlessly integrate them into the Digita
 ### Prerequisites
 
 - Docker & Docker Compose
-- Node.js 18+ (for local development)
+- Node.js 18+ (for local development only)
+- **HCL DX API credentials** (from your HCL DX administrator)
+
+### What You Need From HCL DX Admin
+
+Before setup, request these from your HCL DX administrator:
+
+| Item | Description |
+|------|-------------|
+| **API Key** | Authentication token for API calls |
+| **HCL DX Host** | Server hostname (e.g., `dx.company.com`) |
+| **WCM Library** | Target library name (e.g., `Web Content`) |
+| **CORS Enabled** | Your app domain whitelisted |
 
 ### 1. Initial Setup
 
 ```bash
 cd hcl-dx-composer
 
-# Run the setup script (creates .env with secure defaults)
+# Run interactive setup (guides you through API configuration)
 ./scripts/setup.sh
 ```
 
-### 2. Deploy with Scripts
+The setup wizard will guide you through:
+- Database configuration
+- HCL DX API settings (WCM & DAM)
+- LDAP/Active Directory (optional)
+- AI image generation (optional)
+
+### 2. Deploy
 
 ```bash
-# Deploy to Docker (recommended)
+# Deploy to Docker
 ./scripts/deploy.sh --build
 
 # Or for local development
 ./scripts/dev.sh --install
 ```
 
-### Manual Setup (Alternative)
+### 3. Verify API Connection
 
 ```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your configuration
-nano .env
+# Check all services including HCL DX API connectivity
+./scripts/health-check.sh
 ```
 
-### 2. Configure Environment Variables
+### HCL DX API Configuration
 
-Edit `.env` with your settings:
+The key settings for HCL DX API integration:
 
 ```env
-# Database
-POSTGRES_DB=hcl_dx_staging
-POSTGRES_USER=hcldx
-POSTGRES_PASSWORD=your_secure_password
-
-# LDAP/Active Directory
-LDAP_URL=ldap://your-ad-server:389
-LDAP_BASE_DN=DC=domain,DC=com
-LDAP_BIND_DN=CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com
-LDAP_BIND_PASSWORD=your_ldap_password
-
-# HCL DX
-HCL_DX_HOST=your-dx-server.domain.com
+# HCL DX API Endpoints
+HCL_DX_HOST=dx.company.com
 HCL_DX_PORT=443
 HCL_DX_PROTOCOL=https
-HCL_DX_API_KEY=your_api_key
-HCL_DX_DAM_BASE_URL=https://your-dx-server/dx/api/dam/v1
-HCL_DX_WCM_BASE_URL=https://your-dx-server/wps/mycontenthandler/wcmrest
+HCL_DX_API_KEY=your_api_key_from_portal_admin
 
-# JWT Secret (generate a secure random string)
+# Auto-generated from host (or set manually)
+HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
+HCL_DX_DAM_BASE_URL=https://dx.company.com/dx/api/dam/v1
+
+# Target WCM Library
+HCL_DX_WCM_LIBRARY=Web Content
+```
+
+### Test API Connectivity
+
+```bash
+# Test WCM API
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     https://dx.company.com/wps/mycontenthandler/wcmrest/Library
+
+# Test DAM API  
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     https://dx.company.com/dx/api/dam/v1/collections
+```
+
+### Other Environment Variables
+
+```env
+# Database (auto-configured by setup.sh)
+POSTGRES_DB=hcl_dx_staging
+POSTGRES_USER=hcldx
+POSTGRES_PASSWORD=auto_generated_secure_password
+
+# LDAP/Active Directory (optional)
+LDAP_URL=ldap://your-ad-server:389
+LDAP_BASE_DN=DC=domain,DC=com
+
+# JWT Secret (auto-generated by setup.sh)
 JWT_SECRET=your_jwt_secret_min_32_characters
 SESSION_SECRET=your_session_secret_min_32_characters
 
