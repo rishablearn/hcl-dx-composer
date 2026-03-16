@@ -1,5 +1,8 @@
 # HCL Digital Experience - Pure API Integration Guide
 
+> **API Version Support**: This application supports both the modern Ring API (v2) and legacy wcmrest API (v1).
+> Set `HCL_DX_API_VERSION=v2` in `.env` for optimal performance with JSON responses.
+
 This document provides comprehensive guidance for integrating HCL DX Composer with HCL Digital Experience (DX) using a **100% API-based approach**. All interactions with WCM (Web Content Manager) and DAM (Digital Asset Management) are performed through REST APIs - no direct server access required.
 
 ## Table of Contents
