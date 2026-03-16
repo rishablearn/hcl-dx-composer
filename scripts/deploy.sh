@@ -1,25 +1,58 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #===============================================================================
 # HCL DX Composer - Deployment Script
 # This script deploys the application using Docker Compose
+# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
 #===============================================================================
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+#-------------------------------------------------------------------------------
+# Colors for output (with fallback for non-color terminals)
+#-------------------------------------------------------------------------------
+setup_colors() {
+    if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        CYAN='\033[0;36m'
+        NC='\033[0m'
+    else
+        RED=''
+        GREEN=''
+        YELLOW=''
+        BLUE=''
+        CYAN=''
+        NC=''
+    fi
+}
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+setup_colors
+
+# Get script directory (POSIX compatible)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
+
+#-------------------------------------------------------------------------------
+# Detect Docker Compose command (v1 vs v2)
+#-------------------------------------------------------------------------------
+detect_compose() {
+    if docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    else
+        print_error "Docker Compose not found"
+        exit 1
+    fi
+    export COMPOSE_CMD
+}
+
+detect_compose
 
 # Print banner
 echo -e "${GREEN}"
@@ -140,23 +173,23 @@ case $ACTION in
         print_step "Starting HCL DX Composer..."
         
         # Build Docker Compose command
-        COMPOSE_CMD="docker-compose up"
+        UP_CMD="$COMPOSE_CMD up"
         
         if [ "$BUILD" = true ]; then
-            COMPOSE_CMD="$COMPOSE_CMD --build"
+            UP_CMD="$UP_CMD --build"
             print_warning "Building images (this may take a few minutes)..."
         fi
         
         if [ "$DETACH" = true ]; then
-            COMPOSE_CMD="$COMPOSE_CMD -d"
+            UP_CMD="$UP_CMD -d"
         fi
         
         if [ "$FORCE_RECREATE" = true ]; then
-            COMPOSE_CMD="$COMPOSE_CMD --force-recreate"
+            UP_CMD="$UP_CMD --force-recreate"
         fi
         
         # Execute
-        eval $COMPOSE_CMD
+        eval $UP_CMD
         
         if [ "$DETACH" = true ]; then
             print_step "Waiting for services to be healthy..."
@@ -165,7 +198,7 @@ case $ACTION in
             # Check health
             echo ""
             echo -e "${CYAN}Service Status:${NC}"
-            docker-compose ps
+            $COMPOSE_CMD ps
             
             echo ""
             print_success "Deployment complete!"
@@ -181,7 +214,7 @@ case $ACTION in
         
     stop)
         print_step "Stopping containers..."
-        docker-compose stop
+        $COMPOSE_CMD stop
         print_success "Containers stopped"
         ;;
         
@@ -189,7 +222,7 @@ case $ACTION in
         print_step "Stopping and removing containers..."
         read -p "This will remove all containers. Continue? (y/N): " confirm
         if [[ $confirm =~ ^[Yy]$ ]]; then
-            docker-compose down
+            $COMPOSE_CMD down
             print_success "Containers removed"
         else
             print_warning "Cancelled"
@@ -198,23 +231,23 @@ case $ACTION in
         
     restart)
         print_step "Restarting services..."
-        docker-compose restart
+        $COMPOSE_CMD restart
         print_success "Services restarted"
         ;;
         
     logs)
         print_step "Showing logs (Ctrl+C to exit)..."
-        docker-compose logs -f --tail=100
+        $COMPOSE_CMD logs -f --tail=100
         ;;
         
     status)
         print_step "Service Status:"
         echo ""
-        docker-compose ps
+        $COMPOSE_CMD ps
         echo ""
         
         # Show resource usage
         echo -e "${CYAN}Resource Usage:${NC}"
-        docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $(docker-compose ps -q) 2>/dev/null || true
+        docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD ps -q) 2>/dev/null || true
         ;;
 esac

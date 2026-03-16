@@ -1,18 +1,76 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #===============================================================================
 # HCL DX Composer - Initial Setup Script
 # This script sets up the environment for first-time deployment
+# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
 #===============================================================================
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+#-------------------------------------------------------------------------------
+# Detect OS and Distribution
+#-------------------------------------------------------------------------------
+detect_os() {
+    OS="unknown"
+    DISTRO="unknown"
+    PKG_MANAGER="unknown"
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+        DISTRO="macos"
+        PKG_MANAGER="brew"
+    elif [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS="linux"
+        DISTRO="${ID:-unknown}"
+        
+        # Detect package manager
+        if command -v apt-get &> /dev/null; then
+            PKG_MANAGER="apt"
+        elif command -v dnf &> /dev/null; then
+            PKG_MANAGER="dnf"
+        elif command -v yum &> /dev/null; then
+            PKG_MANAGER="yum"
+        elif command -v apk &> /dev/null; then
+            PKG_MANAGER="apk"
+        elif command -v pacman &> /dev/null; then
+            PKG_MANAGER="pacman"
+        elif command -v zypper &> /dev/null; then
+            PKG_MANAGER="zypper"
+        fi
+    elif [[ -f /etc/redhat-release ]]; then
+        OS="linux"
+        DISTRO="rhel"
+        PKG_MANAGER="yum"
+    fi
+    
+    export OS DISTRO PKG_MANAGER
+}
+
+#-------------------------------------------------------------------------------
+# Colors for output (with fallback for non-color terminals)
+#-------------------------------------------------------------------------------
+setup_colors() {
+    if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        CYAN='\033[0;36m'
+        NC='\033[0m'
+    else
+        RED=''
+        GREEN=''
+        YELLOW=''
+        BLUE=''
+        CYAN=''
+        NC=''
+    fi
+}
+
+setup_colors
+detect_os
 
 # Print banner
 echo -e "${GREEN}"
@@ -21,9 +79,10 @@ echo "║           HCL DX Composer - Setup Script                     ║"
 echo "║              Bharat Petroleum Digital Platform               ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
+echo -e "Detected: ${CYAN}${OS}${NC} / ${CYAN}${DISTRO}${NC} / Package Manager: ${CYAN}${PKG_MANAGER}${NC}"
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get script directory (POSIX compatible)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
@@ -63,36 +122,111 @@ print_step "Checking prerequisites..."
 
 # Check Docker
 if command -v docker &> /dev/null; then
-    DOCKER_VERSION=$(docker --version | cut -d ' ' -f3 | cut -d ',' -f1)
-    print_success "Docker installed (v$DOCKER_VERSION)"
+    DOCKER_VERSION=$(docker --version 2>/dev/null | cut -d ' ' -f3 | cut -d ',' -f1)
+    print_success "Docker installed (v${DOCKER_VERSION:-unknown})"
 else
     print_error "Docker is not installed. Please install Docker first."
-    echo "  Visit: https://docs.docker.com/get-docker/"
+    echo ""
+    echo "  Installation instructions:"
+    case "$PKG_MANAGER" in
+        apt)
+            echo "    sudo apt-get update && sudo apt-get install -y docker.io docker-compose"
+            echo "    sudo systemctl enable --now docker"
+            echo "    sudo usermod -aG docker \$USER"
+            ;;
+        dnf|yum)
+            echo "    sudo $PKG_MANAGER install -y docker docker-compose"
+            echo "    sudo systemctl enable --now docker"
+            echo "    sudo usermod -aG docker \$USER"
+            ;;
+        apk)
+            echo "    sudo apk add docker docker-compose"
+            echo "    sudo rc-update add docker boot"
+            echo "    sudo service docker start"
+            ;;
+        pacman)
+            echo "    sudo pacman -S docker docker-compose"
+            echo "    sudo systemctl enable --now docker"
+            ;;
+        brew)
+            echo "    brew install --cask docker"
+            ;;
+        *)
+            echo "    Visit: https://docs.docker.com/get-docker/"
+            ;;
+    esac
     exit 1
 fi
 
-# Check Docker Compose
-if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
-    print_success "Docker Compose installed"
+# Check Docker Compose (v1 or v2)
+COMPOSE_CMD=""
+if docker compose version &> /dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+    print_success "Docker Compose v2 installed"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+    print_success "Docker Compose v1 installed"
 else
     print_error "Docker Compose is not installed."
+    case "$PKG_MANAGER" in
+        apt)
+            echo "    sudo apt-get install -y docker-compose"
+            ;;
+        dnf|yum)
+            echo "    sudo $PKG_MANAGER install -y docker-compose"
+            ;;
+        *)
+            echo "    Visit: https://docs.docker.com/compose/install/"
+            ;;
+    esac
     exit 1
 fi
 
 # Check if Docker is running
-if docker info &> /dev/null; then
+if docker info &> /dev/null 2>&1; then
     print_success "Docker daemon is running"
 else
-    print_error "Docker daemon is not running. Please start Docker."
+    print_error "Docker daemon is not running."
+    echo ""
+    case "$OS" in
+        macos)
+            echo "  Please start Docker Desktop"
+            ;;
+        linux)
+            echo "  Try: sudo systemctl start docker"
+            echo "  Or:  sudo service docker start"
+            ;;
+    esac
     exit 1
 fi
 
 # Check Node.js (optional, for local development)
 if command -v node &> /dev/null; then
-    NODE_VERSION=$(node --version)
-    print_success "Node.js installed ($NODE_VERSION)"
+    NODE_VERSION=$(node --version 2>/dev/null)
+    print_success "Node.js installed (${NODE_VERSION:-unknown})"
 else
     print_warning "Node.js not found (optional, needed for local development)"
+    echo ""
+    echo "  To install Node.js:"
+    case "$PKG_MANAGER" in
+        apt)
+            echo "    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -"
+            echo "    sudo apt-get install -y nodejs"
+            ;;
+        dnf|yum)
+            echo "    curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -"
+            echo "    sudo $PKG_MANAGER install -y nodejs"
+            ;;
+        apk)
+            echo "    sudo apk add nodejs npm"
+            ;;
+        pacman)
+            echo "    sudo pacman -S nodejs npm"
+            ;;
+        brew)
+            echo "    brew install node"
+            ;;
+    esac
 fi
 
 #-------------------------------------------------------------------------------
@@ -113,10 +247,29 @@ fi
 if [ ! -f ".env" ]; then
     echo "Creating .env file from template..."
     
+    # Cross-platform random secret generation
+    generate_secret() {
+        local length=${1:-32}
+        if command -v openssl &> /dev/null; then
+            openssl rand -base64 "$length" 2>/dev/null | tr -d '\n' | head -c "$length"
+        elif [ -r /dev/urandom ]; then
+            tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c "$length"
+        elif command -v python3 &> /dev/null; then
+            python3 -c "import secrets; print(secrets.token_urlsafe($length)[:$length])"
+        elif command -v python &> /dev/null; then
+            python -c "import os, base64; print(base64.b64encode(os.urandom($length)).decode()[:$length])"
+        else
+            # Fallback: use date and process info (less secure, but works everywhere)
+            echo "$(date +%s%N)$$" | sha256sum 2>/dev/null | head -c "$length" || \
+            echo "$(date +%s)$$RANDOM" | md5sum 2>/dev/null | head -c "$length" || \
+            echo "change_this_secret_$(date +%s)"
+        fi
+    }
+    
     # Generate random secrets
-    JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
-    SESSION_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
-    DB_PASSWORD=$(openssl rand -base64 16 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+    JWT_SECRET=$(generate_secret 32)
+    SESSION_SECRET=$(generate_secret 32)
+    DB_PASSWORD=$(generate_secret 16)
 
     cat > .env << EOF
 #===============================================================================

@@ -1,26 +1,61 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #===============================================================================
 # HCL DX Composer - Health Check Script
 # This script checks the health of all services
+# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
 #===============================================================================
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+#-------------------------------------------------------------------------------
+# Colors for output (with fallback for non-color terminals)
+#-------------------------------------------------------------------------------
+setup_colors() {
+    if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        CYAN='\033[0;36m'
+        NC='\033[0m'
+    else
+        RED=''
+        GREEN=''
+        YELLOW=''
+        BLUE=''
+        CYAN=''
+        NC=''
+    fi
+}
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+setup_colors
+
+# Get script directory (POSIX compatible)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+#-------------------------------------------------------------------------------
+# Detect Docker Compose command (v1 vs v2)
+#-------------------------------------------------------------------------------
+detect_compose() {
+    if docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    else
+        COMPOSE_CMD=""
+    fi
+    export COMPOSE_CMD
+}
+
+detect_compose
+
 # Load environment
 if [ -f ".env" ]; then
     set -a
-    source .env
+    # shellcheck disable=SC1091
+    . .env
     set +a
 fi
 
@@ -38,25 +73,29 @@ echo ""
 echo -e "${BLUE}Docker Containers:${NC}"
 echo "─────────────────────────────────────────────────────────────────"
 
-# Database
-if docker-compose ps db 2>/dev/null | grep -q "Up"; then
-    echo -e "  Database (PostgreSQL):  ${GREEN}● Running${NC}"
+if [ -z "$COMPOSE_CMD" ]; then
+    echo -e "  ${YELLOW}Docker Compose not available${NC}"
 else
-    echo -e "  Database (PostgreSQL):  ${RED}○ Stopped${NC}"
-fi
+    # Database
+    if $COMPOSE_CMD ps db 2>/dev/null | grep -q -E "(Up|running)"; then
+        echo -e "  Database (PostgreSQL):  ${GREEN}● Running${NC}"
+    else
+        echo -e "  Database (PostgreSQL):  ${RED}○ Stopped${NC}"
+    fi
 
-# Backend
-if docker-compose ps backend 2>/dev/null | grep -q "Up"; then
-    echo -e "  Backend (Node.js):      ${GREEN}● Running${NC}"
-else
-    echo -e "  Backend (Node.js):      ${RED}○ Stopped${NC}"
-fi
+    # Backend
+    if $COMPOSE_CMD ps backend 2>/dev/null | grep -q -E "(Up|running)"; then
+        echo -e "  Backend (Node.js):      ${GREEN}● Running${NC}"
+    else
+        echo -e "  Backend (Node.js):      ${RED}○ Stopped${NC}"
+    fi
 
-# Frontend
-if docker-compose ps frontend 2>/dev/null | grep -q "Up"; then
-    echo -e "  Frontend (React):       ${GREEN}● Running${NC}"
-else
-    echo -e "  Frontend (React):       ${RED}○ Stopped${NC}"
+    # Frontend
+    if $COMPOSE_CMD ps frontend 2>/dev/null | grep -q -E "(Up|running)"; then
+        echo -e "  Frontend (React):       ${GREEN}● Running${NC}"
+    else
+        echo -e "  Frontend (React):       ${RED}○ Stopped${NC}"
+    fi
 fi
 
 #-------------------------------------------------------------------------------
@@ -83,11 +122,15 @@ else
 fi
 
 # Database connection
-DB_HEALTH=$(docker-compose exec -T db pg_isready -U ${POSTGRES_USER:-hcldx} 2>/dev/null && echo "ok" || echo "fail")
-if [ "$DB_HEALTH" = "ok" ]; then
-    echo -e "  Database:               ${GREEN}● Accepting connections${NC}"
+if [ -n "$COMPOSE_CMD" ]; then
+    DB_HEALTH=$($COMPOSE_CMD exec -T db pg_isready -U ${POSTGRES_USER:-hcldx} 2>/dev/null && echo "ok" || echo "fail")
+    if [ "$DB_HEALTH" = "ok" ]; then
+        echo -e "  Database:               ${GREEN}● Accepting connections${NC}"
+    else
+        echo -e "  Database:               ${RED}○ Not accepting connections${NC}"
+    fi
 else
-    echo -e "  Database:               ${RED}○ Not accepting connections${NC}"
+    echo -e "  Database:               ${YELLOW}○ Cannot check (no Docker Compose)${NC}"
 fi
 
 #-------------------------------------------------------------------------------
@@ -97,7 +140,16 @@ echo ""
 echo -e "${BLUE}Resource Usage:${NC}"
 echo "─────────────────────────────────────────────────────────────────"
 
-docker stats --no-stream --format "  {{.Name}}:\t{{.CPUPerc}}\t{{.MemUsage}}" $(docker-compose ps -q 2>/dev/null) 2>/dev/null || echo "  No containers running"
+if [ -n "$COMPOSE_CMD" ]; then
+    CONTAINER_IDS=$($COMPOSE_CMD ps -q 2>/dev/null)
+    if [ -n "$CONTAINER_IDS" ]; then
+        docker stats --no-stream --format "  {{.Name}}:\t{{.CPUPerc}}\t{{.MemUsage}}" $CONTAINER_IDS 2>/dev/null || echo "  Unable to get stats"
+    else
+        echo "  No containers running"
+    fi
+else
+    echo "  Docker Compose not available"
+fi
 
 #-------------------------------------------------------------------------------
 # Disk usage

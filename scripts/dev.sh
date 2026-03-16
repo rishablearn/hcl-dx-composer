@@ -1,25 +1,58 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #===============================================================================
 # HCL DX Composer - Development Script
 # This script runs the application in development mode
+# Compatible with: macOS, Ubuntu, Debian, CentOS, RHEL, Fedora, Alpine
 #===============================================================================
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+#-------------------------------------------------------------------------------
+# Colors for output (with fallback for non-color terminals)
+#-------------------------------------------------------------------------------
+setup_colors() {
+    if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
+        RED='\033[0;31m'
+        GREEN='\033[0;32m'
+        YELLOW='\033[1;33m'
+        BLUE='\033[0;34m'
+        CYAN='\033[0;36m'
+        NC='\033[0m'
+    else
+        RED=''
+        GREEN=''
+        YELLOW=''
+        BLUE=''
+        CYAN=''
+        NC=''
+    fi
+}
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+setup_colors
+
+# Get script directory (POSIX compatible)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
+
+#-------------------------------------------------------------------------------
+# Detect Docker Compose command (v1 vs v2)
+#-------------------------------------------------------------------------------
+detect_compose() {
+    if docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    else
+        print_error "Docker Compose not found"
+        exit 1
+    fi
+    export COMPOSE_CMD
+}
+
+detect_compose
 
 # Print banner
 echo -e "${CYAN}"
@@ -51,9 +84,11 @@ print_error() {
 cleanup() {
     echo ""
     print_step "Shutting down development servers..."
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $FRONTEND_PID 2>/dev/null || true
-    docker-compose stop db 2>/dev/null || true
+    # Kill background processes
+    [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null || true
+    [ -n "$FRONTEND_PID" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+    # Stop database container
+    $COMPOSE_CMD stop db 2>/dev/null || true
     print_success "Development servers stopped"
     exit 0
 }
@@ -158,21 +193,28 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "db" ] || [ "$MODE" = "backend" ]; then
     print_step "Starting PostgreSQL database..."
     
     # Check if database container exists
-    if docker-compose ps db | grep -q "Up"; then
+    if $COMPOSE_CMD ps db 2>/dev/null | grep -q -E "(Up|running)"; then
         print_success "Database already running"
     else
-        docker-compose up -d db
+        $COMPOSE_CMD up -d db
         print_warning "Waiting for database to be ready..."
         sleep 5
         
         # Wait for database to be healthy
-        for i in {1..30}; do
-            if docker-compose exec -T db pg_isready -U ${POSTGRES_USER:-hcldx} &>/dev/null; then
+        MAX_RETRIES=30
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if $COMPOSE_CMD exec -T db pg_isready -U ${POSTGRES_USER:-hcldx} &>/dev/null; then
                 print_success "Database is ready"
                 break
             fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
             sleep 1
         done
+        
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            print_warning "Database may not be fully ready, but continuing..."
+        fi
     fi
 fi
 
@@ -182,7 +224,7 @@ if [ "$MODE" = "db" ]; then
     echo -e "Connection string: ${BLUE}postgresql://${POSTGRES_USER:-hcldx}:****@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-hcl_dx_staging}${NC}"
     echo ""
     echo "Press Ctrl+C to stop the database"
-    docker-compose logs -f db
+    $COMPOSE_CMD logs -f db
     exit 0
 fi
 
