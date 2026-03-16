@@ -579,11 +579,13 @@ if [ ! -f ".env" ]; then
         prompt_input "WCM Library name" "Web Content" HCL_DX_WCM_LIBRARY
         
         echo ""
-        echo -e "${YELLOW}── API Authentication ──${NC}"
-        print_info "API Key is the recommended authentication method"
+        echo -e "${YELLOW}── Service Account Authentication ──${NC}"
+        print_info "HCL DX uses Basic Authentication (username/password)"
+        print_info "Request a service account from your HCL DX administrator"
         echo ""
-        prompt_secret "HCL DX API Key (from Portal Admin)" HCL_DX_API_KEY
-        HCL_DX_API_KEY="${HCL_DX_API_KEY:-your_dx_api_key}"
+        prompt_input "HCL DX Username (service account)" "wcmservice" HCL_DX_USERNAME
+        prompt_secret "HCL DX Password" HCL_DX_PASSWORD
+        HCL_DX_PASSWORD="${HCL_DX_PASSWORD:-your_dx_password}"
         
         echo ""
         echo -e "${YELLOW}── DAM (Digital Asset Management) API ──${NC}"
@@ -608,7 +610,8 @@ if [ ! -f ".env" ]; then
         HCL_DX_HOST="your-dx-server.domain.com"
         HCL_DX_PORT="443"
         HCL_DX_PROTOCOL="https"
-        HCL_DX_API_KEY="your_dx_api_key"
+        HCL_DX_USERNAME="wcmservice"
+        HCL_DX_PASSWORD="your_dx_password"
         HCL_DX_DAM_BASE_URL="https://your-dx-server/dx/api/dam/v1"
         HCL_DX_WCM_BASE_URL="https://your-dx-server/wps/mycontenthandler/wcmrest"
         HCL_DX_WCM_LIBRARY="Web Content"
@@ -730,19 +733,25 @@ LDAP_USER_SEARCH_BASE=${LDAP_USER_SEARCH_BASE}
 LDAP_GROUP_SEARCH_BASE=${LDAP_GROUP_SEARCH_BASE}
 
 #===============================================================================
-# HCL DIGITAL EXPERIENCE CONFIGURATION
+# HCL DIGITAL EXPERIENCE API CONFIGURATION
 # 
-# Integration with HCL DX for:
-# - Web Content Management (WCM)
-# - Digital Asset Management (DAM)
+# Pure API integration with HCL DX for:
+# - Web Content Management (WCM) via REST API
+# - Digital Asset Management (DAM) via REST API
 # - Content publishing and syndication
 #
-# Get API credentials from your HCL DX administrator
+# Authentication: Basic Auth (username/password)
+# Request service account credentials from your HCL DX administrator
 #===============================================================================
 HCL_DX_HOST=${HCL_DX_HOST}
 HCL_DX_PORT=${HCL_DX_PORT}
 HCL_DX_PROTOCOL=${HCL_DX_PROTOCOL}
-HCL_DX_API_KEY=${HCL_DX_API_KEY}
+
+# Service Account for API Authentication (Basic Auth)
+HCL_DX_USERNAME=${HCL_DX_USERNAME}
+HCL_DX_PASSWORD=${HCL_DX_PASSWORD}
+
+# API Endpoints
 HCL_DX_DAM_BASE_URL=${HCL_DX_DAM_BASE_URL}
 HCL_DX_WCM_BASE_URL=${HCL_DX_WCM_BASE_URL}
 HCL_DX_WCM_LIBRARY=${HCL_DX_WCM_LIBRARY}

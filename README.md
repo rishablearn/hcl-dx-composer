@@ -14,9 +14,10 @@ This application works entirely through HCL DX REST APIs:
 | **Asset Management** | DAM API | Upload images, videos, documents |
 | **Publishing** | WCM/DAM API | Publish to HCL DX Portal |
 | **Workflows** | WCM REST API | Submit, approve, reject content |
-| **Authentication** | LDAP/LTPA2 | Enterprise SSO |
+| **Authentication** | Basic Auth | Service account username/password |
+| **User SSO** | LDAP/LTPA2 | Enterprise Single Sign-On |
 
-**No server access needed** - just API credentials from your HCL DX administrator.
+**No server access needed** - just service account credentials from your HCL DX administrator.
 
 ## Key Features
 
@@ -150,7 +151,7 @@ Before setup, request these from your HCL DX administrator:
 
 | Item | Description |
 |------|-------------|
-| **API Key** | Authentication token for API calls |
+| **Service Account** | Username/password for API authentication |
 | **HCL DX Host** | Server hostname (e.g., `dx.company.com`) |
 | **WCM Library** | Target library name (e.g., `Web Content`) |
 | **CORS Enabled** | Your app domain whitelisted |
@@ -192,11 +193,14 @@ The setup wizard will guide you through:
 The key settings for HCL DX API integration:
 
 ```env
-# HCL DX API Endpoints
+# HCL DX Server
 HCL_DX_HOST=dx.company.com
 HCL_DX_PORT=443
 HCL_DX_PROTOCOL=https
-HCL_DX_API_KEY=your_api_key_from_portal_admin
+
+# Service Account (Basic Authentication)
+HCL_DX_USERNAME=wcmservice
+HCL_DX_PASSWORD=your_password
 
 # Auto-generated from host (or set manually)
 HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
@@ -209,12 +213,12 @@ HCL_DX_WCM_LIBRARY=Web Content
 ### Test API Connectivity
 
 ```bash
-# Test WCM API
-curl -H "Authorization: Bearer YOUR_API_KEY" \
+# Test WCM API using Basic Auth
+curl -u "wcmservice:password" \
      https://dx.company.com/wps/mycontenthandler/wcmrest/Library
 
 # Test DAM API  
-curl -H "Authorization: Bearer YOUR_API_KEY" \
+curl -u "wcmservice:password" \
      https://dx.company.com/dx/api/dam/v1/collections
 ```
 

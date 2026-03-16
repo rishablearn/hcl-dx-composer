@@ -114,7 +114,7 @@ Since this application uses **API-only integration**, you need the following fro
 | Item | Description | Example |
 |------|-------------|---------|
 | **API Base URL** | HCL DX server hostname | `https://dx.company.com` |
-| **API Key** | Authentication token for API calls | `abc123...` |
+| **Service Account** | Username/password for API calls | `wcmadmin` / `password` |
 | **WCM Library Name** | Target library for content | `Web Content` |
 | **DAM Access** | Confirmation DAM API is enabled | Yes/No |
 | **CORS Whitelist** | Your app domain added to CORS | `https://composer.company.com` |
@@ -127,7 +127,7 @@ Your HCL DX administrator needs to ensure:
 - WCM REST API enabled (`/wps/mycontenthandler/wcmrest`)
 - DAM API enabled (`/dx/api/dam/v1`)
 - CORS configured for your Composer domain
-- API Key generated for your application
+- Service account with appropriate WCM/DAM permissions
 
 ### Request API Access
 
@@ -138,20 +138,21 @@ Subject: API Access Request for HCL DX Composer
 
 Please provide API access for the HCL DX Composer application:
 
-1. Generate an API Key with these permissions:
-   - WCM: Read/Write access to [Library Name]
-   - DAM: Read/Write/Upload to collections
+1. Create a service account with these permissions:
+   - WCM: Editor/Manager role in [Library Name]
+   - DAM: Contributor role for collections
    - Workflow: Execute workflow actions
 
 2. Enable CORS for our application domain:
    - Origin: https://[our-composer-domain]
    - Methods: GET, POST, PUT, DELETE, OPTIONS
-   - Headers: Content-Type, Authorization, X-API-Key
+   - Headers: Content-Type, Authorization
 
-3. Provide the following endpoints:
-   - WCM REST API URL
-   - DAM API URL
-   - Portal URL (for LTPA2 SSO, if needed)
+3. Provide the following:
+   - HCL DX server hostname
+   - Service account credentials
+   - WCM Library name
+   - LTPA2 keys (if SSO required)
 ```
 
 ### CORS Configuration (Admin Reference)
@@ -170,16 +171,29 @@ Access-Control-Allow-Credentials: true
 
 ## API Authentication
 
-### Method 1: API Key Authentication
+HCL DX supports two primary authentication methods for REST API access:
 
-Generate an API key in HCL DX Portal Administration:
+### Method 1: Basic Authentication (Recommended for API Integration)
 
-1. Navigate to **Portal Administration > Security > API Keys**
-2. Create a new API key with appropriate permissions
+Use a service account with username/password for server-to-server API calls:
+
+1. Request a service account from your HCL DX administrator
+2. Ensure the account has appropriate WCM/DAM permissions
 3. Configure in `.env`:
 
 ```env
-HCL_DX_API_KEY=your_generated_api_key
+HCL_DX_USERNAME=wcmservice
+HCL_DX_PASSWORD=your_secure_password
+```
+
+API calls use the `Authorization: Basic` header:
+
+```javascript
+const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+const headers = {
+  'Authorization': `Basic ${credentials}`,
+  'Content-Type': 'application/json'
+};
 ```
 
 ### Method 2: LTPA2 SSO Authentication
@@ -200,14 +214,19 @@ For Single Sign-On with the HCL DX Portal:
 
 3. The application will automatically validate LTPA2 tokens from cookies
 
-### Method 3: Basic Authentication (Development Only)
+### Authentication Best Practices
 
-For development/testing only:
+| Environment | Recommended Method |
+|-------------|-------------------|
+| **Production** | Basic Auth with dedicated service account |
+| **SSO Users** | LTPA2 token passthrough |
+| **Development** | Basic Auth with test account |
 
-```env
-HCL_DX_USERNAME=wpsadmin
-HCL_DX_PASSWORD=your_password
-```
+**Security Notes:**
+- Never hardcode credentials in source code
+- Use environment variables for all secrets
+- Rotate service account passwords periodically
+- Use HTTPS for all API communications
 
 ---
 
@@ -236,8 +255,11 @@ HCL_DX_WCM_BASE_URL=https://your-dx-server.com/wps/mycontenthandler/wcmrest
 ### Creating Content via API
 
 ```javascript
-// Example: Create WCM content
+// Example: Create WCM content using Basic Authentication
 const createContent = async (contentData) => {
+  // Create Basic Auth header
+  const credentials = Buffer.from(`${HCL_DX_USERNAME}:${HCL_DX_PASSWORD}`).toString('base64');
+  
   const response = await axios.post(`${WCM_BASE_URL}/Content`, {
     name: contentData.title,
     title: contentData.title,
@@ -249,7 +271,7 @@ const createContent = async (contentData) => {
   }, {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`
+      'Authorization': `Basic ${credentials}`
     }
   });
   return response.data;
@@ -325,8 +347,10 @@ const createCollection = async (name, description) => {
 ### Uploading Assets
 
 ```javascript
-// Example: Upload asset to DAM
+// Example: Upload asset to DAM using Basic Authentication
 const uploadAsset = async (collectionId, file, metadata) => {
+  const credentials = Buffer.from(`${HCL_DX_USERNAME}:${HCL_DX_PASSWORD}`).toString('base64');
+  
   const formData = new FormData();
   formData.append('file', file);
   formData.append('metadata', JSON.stringify(metadata));
@@ -337,7 +361,7 @@ const uploadAsset = async (collectionId, file, metadata) => {
     {
       headers: {
         'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer ${API_KEY}`
+        'Authorization': `Basic ${credentials}`
       }
     }
   );
@@ -426,12 +450,14 @@ const response = await axios.post(`${WCM_BASE_URL}/Content`, {
 ### Syncing with HCL DX Workflows
 
 ```javascript
-// Execute workflow action in HCL DX
+// Execute workflow action in HCL DX using Basic Authentication
 const executeWorkflowAction = async (contentId, action) => {
+  const credentials = Buffer.from(`${HCL_DX_USERNAME}:${HCL_DX_PASSWORD}`).toString('base64');
+  
   await axios.post(
     `${WCM_BASE_URL}/Content/${contentId}/workflow-action`,
     { action: action }, // 'approve', 'reject', 'publish'
-    { headers: { 'Authorization': `Bearer ${API_KEY}` } }
+    { headers: { 'Authorization': `Basic ${credentials}` } }
   );
 };
 ```
@@ -610,11 +636,14 @@ tail -f /opt/HCL/wp_profile/logs/WebSphere_Portal/SystemOut.log
 To get started with API-only integration, configure these environment variables:
 
 ```env
-# Required: HCL DX API Endpoints
+# Required: HCL DX Server
 HCL_DX_HOST=dx.company.com
 HCL_DX_PORT=443
 HCL_DX_PROTOCOL=https
-HCL_DX_API_KEY=your_api_key_here
+
+# Required: Service Account Credentials (Basic Auth)
+HCL_DX_USERNAME=wcmservice
+HCL_DX_PASSWORD=your_secure_password
 
 # API URLs (auto-generated from host, or set manually)
 HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
@@ -626,16 +655,20 @@ HCL_DX_WCM_LIBRARY=Web Content
 
 ### Test API Connectivity
 
-After configuration, test your API connection:
+After configuration, test your API connection using Basic Authentication:
 
 ```bash
-# Test WCM API
-curl -H "Authorization: Bearer YOUR_API_KEY" \
+# Test WCM API (replace username:password with your credentials)
+curl -u "wcmservice:password" \
      https://dx.company.com/wps/mycontenthandler/wcmrest/Library
 
 # Test DAM API
-curl -H "Authorization: Bearer YOUR_API_KEY" \
+curl -u "wcmservice:password" \
      https://dx.company.com/dx/api/dam/v1/collections
+
+# Or using explicit Basic Auth header
+curl -H "Authorization: Basic $(echo -n 'username:password' | base64)" \
+     https://dx.company.com/wps/mycontenthandler/wcmrest/Library
 ```
 
 ### Verify in Application
