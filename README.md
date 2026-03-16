@@ -146,54 +146,75 @@ Generate stunning visuals using AI and seamlessly integrate them into the Digita
 
 ## Quick Start
 
+> 📖 **Full deployment guide**: [docs/DEPLOYMENT-GUIDE.md](docs/DEPLOYMENT-GUIDE.md)
+
 ### Prerequisites
 
-- Docker & Docker Compose
+- Docker & Docker Compose (v2.0+)
 - Node.js 18+ (for local development only)
-- **HCL DX API credentials** (from your HCL DX administrator)
 
-### What You Need From HCL DX Admin
+### Deployment Sequence
 
-Before setup, request these from your HCL DX administrator:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1: SETUP          STEP 2: DEPLOY         STEP 3: VERIFY  │
+│  ─────────────          ──────────────         ──────────────  │
+│  ./scripts/setup.sh  →  ./scripts/deploy.sh  → Health Check    │
+│       │                      --build                │           │
+│       ▼                         │                   ▼           │
+│  Configure:                     ▼              Access:          │
+│  • Database              Start Services:       • localhost:3000 │
+│  • LDAP Mode             • PostgreSQL          • Login & Test   │
+│  • HCL DX API            • OpenLDAP (local)                     │
+│  • AI Providers          • Backend                              │
+│                          • Frontend                             │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| Item | Description |
-|------|-------------|
-| **Service Account** | Username/password for API authentication |
-| **HCL DX Host** | Server hostname (e.g., `dx.company.com`) |
-| **WCM Library** | Target library name (e.g., `Web Content`) |
-| **CORS Enabled** | Your app domain whitelisted |
-
-### 1. Initial Setup
+### Step 1: Clone & Setup
 
 ```bash
+# Clone repository
+git clone https://github.com/rishablearn/hcl-dx-composer.git
 cd hcl-dx-composer
 
-# Run interactive setup (guides you through API configuration)
+# Run interactive setup
 ./scripts/setup.sh
 ```
 
-The setup wizard will guide you through:
-- Database configuration
-- HCL DX API settings (WCM & DAM)
-- LDAP Authentication Mode (Local OpenLDAP or Common/HCL DX LDAP)
-- AI image generation (optional)
-
-### 2. Deploy
+### Step 2: Deploy
 
 ```bash
-# Deploy to Docker
+# Build and start all services
 ./scripts/deploy.sh --build
-
-# Or for local development
-./scripts/dev.sh --install
 ```
 
-### 3. Verify API Connection
+### Step 3: Verify
 
 ```bash
-# Check all services including HCL DX API connectivity
+# Check service status
+./scripts/deploy.sh --status
+
+# Run health check
 ./scripts/health-check.sh
 ```
+
+### Step 4: Access
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | http://localhost:3000 |
+| **Backend API** | http://localhost:3001/api |
+| **Health Check** | http://localhost:3001/api/health |
+
+### Default Users (Local LDAP)
+
+| Username | Password | Role |
+|----------|----------|------|
+| admin | password | Administrator |
+| author | password | Content Author |
+| reviewer | password | Content Reviewer |
+| publisher | password | Publisher |
 
 ### HCL DX API Configuration
 
@@ -472,9 +493,12 @@ The application uses Tailwind CSS with a custom Bharat Petroleum theme:
 
 ## Documentation
 
-- **[AI Image Providers Guide](docs/AI-IMAGE-PROVIDERS.md)** - Comprehensive guide for AI image generation providers
-- **[HCL DX Integration Guide](docs/HCL-DX-INTEGRATION.md)** - Comprehensive guide for HCL DX API integration
-- **[LDAP Configuration Guide](docs/LDAP-CONFIGURATION.md)** - Local LDAP vs Common LDAP setup with detailed instructions
+| Document | Description |
+|----------|-------------|
+| **[Deployment Guide](docs/DEPLOYMENT-GUIDE.md)** | Complete deployment sequence and verification |
+| **[HCL DX Integration](docs/HCL-DX-INTEGRATION.md)** | HCL DX API integration guide |
+| **[LDAP Configuration](docs/LDAP-CONFIGURATION.md)** | Local LDAP vs Common LDAP setup |
+| **[AI Image Providers](docs/AI-IMAGE-PROVIDERS.md)** | AI image generation providers |
 
 ## HCL DX API References
 
