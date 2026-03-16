@@ -19,18 +19,20 @@ services:
       - "${FRONTEND_PORT:-3000}:80"
       - "${FRONTEND_SSL_PORT:-443}:443"
     volumes:
-      - ./ssl/certs:/etc/nginx/ssl:ro
-      - ./ssl/private:/etc/nginx/ssl-private:ro
+      # Mount SSL certificates - nginx expects them in /etc/nginx/ssl/
+      - ./ssl/certs/server.crt:/etc/nginx/ssl/server.crt:ro
+      - ./ssl/private/server.key:/etc/nginx/ssl/server.key:ro
       - certbot_webroot:/var/www/certbot:ro
     depends_on:
       - backend
     networks:
       - hcl-dx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   # Certbot service for Let's Encrypt certificate renewal
   certbot:
