@@ -9,6 +9,7 @@ HCL DX Composer supports multiple AI image generation providers, including **fre
 | Provider | Free Tier | Quality | Speed | Best For |
 |----------|-----------|---------|-------|----------|
 | **Pollinations AI** | ✅ Unlimited | Good | Fast | No signup, instant use |
+| **Cloudflare Workers AI** | ✅ 10k neurons/day | High | Fast | Edge deployment, FLUX models |
 | **Google Gemini** | ✅ 500/day | High | Fast | General purpose, recommended |
 | **Hugging Face** | ✅ Limited | Variable | Medium | Open-source models, customization |
 | **OpenAI DALL-E** | ❌ Paid | Excellent | Fast | Photorealistic, professional |
@@ -108,6 +109,82 @@ curl "https://pollinations.ai/p/corporate%20office%20building" -o image.jpg
 - ✅ **Open Source** - Transparent and community-driven
 - ✅ **Multiple Models** - FLUX, Turbo, and more
 - ✅ **Fast** - Quick response times
+
+---
+
+## Cloudflare Workers AI (FREE)
+
+Cloudflare Workers AI provides serverless AI inference at the edge with a generous free tier.
+
+### Free Tier Limits
+
+- **10,000 Neurons per day** (resets at midnight UTC)
+- Requires free Cloudflare account
+- Models: FLUX.1 schnell, FLUX.2 klein, Stable Diffusion XL
+- Global edge deployment for low latency
+
+### Setup
+
+1. Create account at [Cloudflare](https://dash.cloudflare.com/sign-up)
+2. Get API token from [API Tokens](https://dash.cloudflare.com/profile/api-tokens)
+3. Get Account ID from dashboard URL or overview page
+4. Configure in `.env`:
+
+```env
+AI_IMAGE_PROVIDER=cloudflare
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
+CLOUDFLARE_AI_MODEL=@cf/black-forest-labs/flux-1-schnell
+```
+
+### API Usage Example
+
+```javascript
+async function generateImage(prompt) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const model = process.env.CLOUDFLARE_AI_MODEL || '@cf/black-forest-labs/flux-1-schnell';
+  
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt }),
+    }
+  );
+  
+  const imageBlob = await response.blob();
+  return Buffer.from(await imageBlob.arrayBuffer());
+}
+```
+
+### Available Models
+
+| Model | ID | Neurons/Image | Notes |
+|-------|-----|---------------|-------|
+| **FLUX.1 schnell** | `@cf/black-forest-labs/flux-1-schnell` | ~300 | Fast, high quality |
+| **FLUX.2 klein** | `@cf/black-forest-labs/flux-2-klein-9b` | ~200 | Ultra-fast |
+| **Stable Diffusion XL** | `@cf/stabilityai/stable-diffusion-xl-base-1.0` | ~400 | Classic SDXL |
+| **Stable Diffusion XL Lightning** | `@cf/bytedance/stable-diffusion-xl-lightning` | ~100 | Fastest |
+
+### Estimated Free Tier Usage
+
+With 10,000 neurons/day:
+- **FLUX.1 schnell**: ~33 images/day
+- **FLUX.2 klein**: ~50 images/day  
+- **SD XL Lightning**: ~100 images/day
+
+### Why Choose Cloudflare?
+
+- ✅ **Edge Deployment** - Low latency globally
+- ✅ **Reliable** - Cloudflare's infrastructure
+- ✅ **FLUX Models** - Latest image generation
+- ✅ **Free Tier** - 10k neurons/day
+- ✅ **REST API** - Easy integration
 
 ---
 
@@ -344,6 +421,12 @@ async function generateImage(prompt) {
 │                 │ • No signup needed                            │
 │                 │ • Just HTTP GET requests                      │
 ├─────────────────┼───────────────────────────────────────────────┤
+│ Cloudflare AI   │ ★★★★☆ Best for edge deployment                │
+│                 │ • 10,000 neurons/day (~30-100 images)         │
+│                 │ • FLUX models available                       │
+│                 │ • Global edge network                         │
+│                 │ • Reliable infrastructure                     │
+├─────────────────┼───────────────────────────────────────────────┤
 │ Google Gemini   │ ★★★★★ Best quality free option                │
 │                 │ • 500 images/day                              │
 │                 │ • High quality                                │
@@ -390,6 +473,16 @@ AI_IMAGE_PROVIDER=pollinations
 # That's it! No API key required
 ```
 
+### For Edge Deployment (Cloudflare)
+
+```env
+# Use Cloudflare Workers AI - 10k neurons/day free
+AI_IMAGE_PROVIDER=cloudflare
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
+CLOUDFLARE_AI_MODEL=@cf/black-forest-labs/flux-1-schnell
+```
+
 ### For Free Tier with Higher Quality
 
 ```env
@@ -426,6 +519,15 @@ HUGGINGFACE_MODEL=black-forest-labs/FLUX.1-schnell
 | `Image not loading` | Check internet connection, retry |
 | `Timeout` | Reduce image size, try again |
 | `Content filtered` | Modify prompt to be appropriate |
+
+### Cloudflare Workers AI Issues
+
+| Error | Solution |
+|-------|----------|
+| `Authentication error` | Verify API token has Workers AI permissions |
+| `Neuron limit exceeded` | Wait until midnight UTC for reset |
+| `Model not found` | Check model ID is correct |
+| `Account ID invalid` | Get Account ID from dashboard URL |
 
 ### Google Gemini Issues
 

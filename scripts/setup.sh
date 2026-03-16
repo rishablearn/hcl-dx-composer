@@ -632,6 +632,7 @@ if [ ! -f ".env" ]; then
     echo "  │ Provider        │ Model                │ Free Tier   │ Best For         │"
     echo "  ├─────────────────┼──────────────────────┼─────────────┼──────────────────┤"
     echo "  │ Pollinations    │ FLUX, Turbo          │ ✓ Unlimited │ No signup needed │"
+    echo "  │ Cloudflare      │ FLUX.1, SDXL         │ ✓ 10k/day   │ Edge, reliable   │"
     echo "  │ Google Gemini   │ Gemini Flash Image   │ ✓ 500/day   │ General, Fast    │"
     echo "  │ Hugging Face    │ FLUX.1, Stable Diff  │ ✓ Limited   │ Open-source      │"
     echo "  │ OpenAI          │ DALL-E 3             │ ✗ Paid      │ Photorealistic   │"
@@ -652,6 +653,9 @@ if [ ! -f ".env" ]; then
     GOOGLE_AI_API_KEY=""
     HUGGINGFACE_API_KEY=""
     POLLINATIONS_API_KEY=""
+    CLOUDFLARE_ACCOUNT_ID=""
+    CLOUDFLARE_API_TOKEN=""
+    CLOUDFLARE_AI_MODEL="@cf/black-forest-labs/flux-1-schnell"
     AI_IMAGE_PROVIDER="pollinations"
     HUGGINGFACE_MODEL="black-forest-labs/FLUX.1-schnell"
     
@@ -665,22 +669,27 @@ if [ ! -f ".env" ]; then
         echo "     • Models: FLUX, Turbo"
         echo "     • Website: https://pollinations.ai"
         echo ""
-        echo "  2) Google Gemini (FREE) - High quality"
+        echo "  2) Cloudflare Workers AI (FREE) - Edge deployment"
+        echo "     • 10,000 neurons/day (~30-100 images)"
+        echo "     • Models: FLUX.1 schnell, SDXL"
+        echo "     • Get credentials: https://dash.cloudflare.com"
+        echo ""
+        echo "  3) Google Gemini (FREE) - High quality"
         echo "     • 500 free images/day"
         echo "     • Model: gemini-2.5-flash-image"
         echo "     • Get API key: https://aistudio.google.com/apikey"
         echo ""
-        echo "  3) Hugging Face (FREE) - Open-source models"
+        echo "  4) Hugging Face (FREE) - Open-source models"
         echo "     • Limited free inference API requests"
         echo "     • Models: FLUX.1, Stable Diffusion XL"
         echo "     • Get API key: https://huggingface.co/settings/tokens"
         echo ""
-        echo "  4) OpenAI DALL-E (PAID) - Premium quality"
+        echo "  5) OpenAI DALL-E (PAID) - Premium quality"
         echo "     • Pay-per-image pricing"
         echo "     • Model: DALL-E 3"
         echo "     • Get API key: https://platform.openai.com/api-keys"
         echo ""
-        echo "  5) Stability AI (PAID) - Fine artistic control"
+        echo "  6) Stability AI (PAID) - Fine artistic control"
         echo "     • Pay-per-image pricing"
         echo "     • Models: SDXL, Stable Diffusion 3"
         echo "     • Get API key: https://platform.stability.ai/account/keys"
@@ -696,25 +705,33 @@ if [ ! -f ".env" ]; then
                 print_success "No configuration required - ready to use!"
                 ;;
             2)
+                AI_IMAGE_PROVIDER="cloudflare"
+                echo ""
+                print_info "Cloudflare Workers AI selected (FREE tier available)"
+                prompt_input "Cloudflare Account ID" "" CLOUDFLARE_ACCOUNT_ID
+                prompt_secret "Cloudflare API Token" CLOUDFLARE_API_TOKEN
+                prompt_input "Cloudflare AI Model" "@cf/black-forest-labs/flux-1-schnell" CLOUDFLARE_AI_MODEL
+                ;;
+            3)
                 AI_IMAGE_PROVIDER="gemini"
                 echo ""
                 print_info "Google Gemini selected (FREE tier available)"
                 prompt_secret "Enter Google AI API key (from AI Studio)" GOOGLE_AI_API_KEY
                 ;;
-            3)
+            4)
                 AI_IMAGE_PROVIDER="huggingface"
                 echo ""
                 print_info "Hugging Face selected (FREE tier available)"
                 prompt_secret "Enter Hugging Face API token" HUGGINGFACE_API_KEY
                 prompt_input "Hugging Face model" "black-forest-labs/FLUX.1-schnell" HUGGINGFACE_MODEL
                 ;;
-            4)
+            5)
                 AI_IMAGE_PROVIDER="openai"
                 echo ""
                 print_info "OpenAI DALL-E selected (Paid)"
                 prompt_secret "Enter OpenAI API key" OPENAI_API_KEY
                 ;;
-            5)
+            6)
                 AI_IMAGE_PROVIDER="stability"
                 echo ""
                 print_info "Stability AI selected (Paid)"
@@ -854,6 +871,11 @@ LTPA2_REALM=
 #   • Models: FLUX, Turbo
 #   • Website: https://pollinations.ai
 #
+# Cloudflare Workers AI (Edge deployment)
+#   • 10,000 neurons/day (~30-100 images)
+#   • Models: FLUX.1 schnell, SDXL
+#   • Get credentials: https://dash.cloudflare.com
+#
 # Google Gemini
 #   • 500 free images/day
 #   • Models: gemini-2.5-flash-image, gemini-3.1-flash-image-preview
@@ -874,7 +896,7 @@ LTPA2_REALM=
 #   • Pay-per-credit pricing
 #   • Get key: https://platform.stability.ai/account/keys
 #
-# AI_IMAGE_PROVIDER: 'pollinations', 'gemini', 'huggingface', 'openai', or 'stability'
+# AI_IMAGE_PROVIDER: 'pollinations', 'cloudflare', 'gemini', 'huggingface', 'openai', or 'stability'
 #===============================================================================
 AI_IMAGE_PROVIDER=${AI_IMAGE_PROVIDER}
 
@@ -882,6 +904,12 @@ AI_IMAGE_PROVIDER=${AI_IMAGE_PROVIDER}
 # Just works out of the box - no configuration needed
 # Optional API key for premium features: https://enter.pollinations.ai
 POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+
+# Cloudflare Workers AI (FREE - 10k neurons/day)
+# Get credentials from: https://dash.cloudflare.com
+CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+CLOUDFLARE_AI_MODEL=${CLOUDFLARE_AI_MODEL:-@cf/black-forest-labs/flux-1-schnell}
 
 # Google Gemini (FREE)
 GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
