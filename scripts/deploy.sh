@@ -334,27 +334,56 @@ case $ACTION in
         
         if [ "$DETACH" = true ]; then
             print_step "Waiting for services to be healthy..."
-            sleep 5
+            
+            # Wait for OpenLDAP if using local LDAP
+            if [ "$LDAP_MODE" = "local" ]; then
+                echo -e "${CYAN}Waiting for OpenLDAP to be ready...${NC}"
+                for i in {1..30}; do
+                    if $SUDO_CMD docker exec hcl-dx-openldap ldapsearch -x -H ldap://localhost -b "dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD:-admin_password}" > /dev/null 2>&1; then
+                        print_success "OpenLDAP is ready"
+                        break
+                    fi
+                    echo -n "."
+                    sleep 2
+                done
+                echo ""
+            fi
+            
+            # Wait for backend to be healthy
+            echo -e "${CYAN}Waiting for Backend API to be ready...${NC}"
+            for i in {1..30}; do
+                if curl -sf http://localhost:${BACKEND_PORT:-3001}/api/health > /dev/null 2>&1; then
+                    print_success "Backend API is ready"
+                    break
+                fi
+                echo -n "."
+                sleep 2
+            done
+            echo ""
             
             # Check health
             echo ""
             echo -e "${CYAN}Service Status:${NC}"
-            $COMPOSE_CMD ps
+            $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE ps
             
             echo ""
             print_success "Deployment complete!"
             echo ""
+            
+            # Get hostname from .env
+            APP_HOSTNAME=$(grep "^APP_HOSTNAME=" .env 2>/dev/null | cut -d'=' -f2 || echo "localhost")
+            
             echo -e "Access the application:"
             if [ "$SSL_MODE" = true ]; then
-                echo -e "  ${BLUE}Frontend:${NC}    https://localhost:${FRONTEND_SSL_PORT:-443}"
-                echo -e "  ${BLUE}Backend API:${NC} https://localhost:${FRONTEND_SSL_PORT:-443}/api"
-                echo -e "  ${BLUE}Health:${NC}      https://localhost:${FRONTEND_SSL_PORT:-443}/api/health"
+                echo -e "  ${BLUE}Frontend:${NC}    https://${APP_HOSTNAME}"
+                echo -e "  ${BLUE}Backend API:${NC} https://${APP_HOSTNAME}/api"
+                echo -e "  ${BLUE}Health:${NC}      https://${APP_HOSTNAME}/health"
                 echo ""
                 echo -e "  ${YELLOW}Note: Using self-signed certificate. Browser will show security warning.${NC}"
             else
-                echo -e "  ${BLUE}Frontend:${NC}    http://localhost:${FRONTEND_PORT:-3000}"
-                echo -e "  ${BLUE}Backend API:${NC} http://localhost:${FRONTEND_PORT:-3000}/api"
-                echo -e "  ${BLUE}Health:${NC}      http://localhost:${BACKEND_PORT:-3001}/api/health"
+                echo -e "  ${BLUE}Frontend:${NC}    http://${APP_HOSTNAME}:${FRONTEND_PORT:-3000}"
+                echo -e "  ${BLUE}Backend API:${NC} http://${APP_HOSTNAME}:${FRONTEND_PORT:-3000}/api"
+                echo -e "  ${BLUE}Health:${NC}      http://${APP_HOSTNAME}:${FRONTEND_PORT:-3000}/health"
             fi
             echo ""
             echo -e "View logs: ${YELLOW}./scripts/deploy.sh --logs${NC}"
