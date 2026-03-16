@@ -510,8 +510,15 @@ if [ ! -f ".env" ]; then
     print_info "Configure the hostname for accessing the application."
     echo ""
     
-    # Get current hostname
-    CURRENT_HOSTNAME=$(hostname 2>/dev/null || echo "localhost")
+    # Get current hostname - clean it up
+    CURRENT_HOSTNAME=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+    # Remove any trailing newlines or spaces
+    CURRENT_HOSTNAME=$(echo "$CURRENT_HOSTNAME" | tr -d '\n' | xargs)
+    
+    # If hostname is empty or has issues, use localhost
+    if [ -z "$CURRENT_HOSTNAME" ] || [ "$CURRENT_HOSTNAME" = "" ]; then
+        CURRENT_HOSTNAME="localhost"
+    fi
     
     echo -e "${CYAN}Hostname Options:${NC}"
     echo ""
@@ -525,9 +532,11 @@ if [ ! -f ".env" ]; then
     
     prompt_input "Server hostname" "${CURRENT_HOSTNAME}" APP_HOSTNAME
     
-    # Validate hostname format
-    if [[ ! "$APP_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$ ]]; then
-        print_warning "Invalid hostname format, using: ${CURRENT_HOSTNAME}"
+    # Clean up hostname - remove spaces and newlines
+    APP_HOSTNAME=$(echo "$APP_HOSTNAME" | tr -d '\n' | xargs)
+    
+    # If empty, use default
+    if [ -z "$APP_HOSTNAME" ]; then
         APP_HOSTNAME="${CURRENT_HOSTNAME}"
     fi
     
