@@ -514,36 +514,132 @@ if [ ! -f ".env" ]; then
     prompt_input "API base URL" "http://localhost:${BACKEND_PORT}/api" VITE_API_BASE_URL
     
     #---------------------------------------------------------------------------
-    # LDAP Configuration
+    # LDAP Configuration (API Integration)
     #---------------------------------------------------------------------------
-    print_step "LDAP/Active Directory Configuration"
-    print_info "Configure connection to your organization's Active Directory."
-    print_info "This enables enterprise SSO authentication."
+    print_step "LDAP Authentication Configuration"
+    echo ""
+    print_info "All authentication happens via API. Choose your LDAP mode:"
+    echo ""
+    echo -e "${CYAN}LDAP Integration Options:${NC}"
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────────────────────┐"
+    echo "  │                     LDAP AUTHENTICATION MODES                        │"
+    echo "  ├─────────────────┬───────────────────────────────────────────────────┤"
+    echo "  │ LOCAL LDAP      │ Docker OpenLDAP container (included)              │"
+    echo "  │                 │ • Standalone user management                      │"
+    echo "  │                 │ • Pre-configured users & groups for workflow      │"
+    echo "  │                 │ • Best for: Development, Testing, Demos           │"
+    echo "  ├─────────────────┼───────────────────────────────────────────────────┤"
+    echo "  │ COMMON LDAP     │ Shared LDAP with HCL DX (Active Directory/LDAP)   │"
+    echo "  │                 │ • Same users as HCL DX Portal                     │"
+    echo "  │                 │ • Enterprise SSO integration                      │"
+    echo "  │                 │ • Best for: Production, Enterprise                │"
+    echo "  └─────────────────┴───────────────────────────────────────────────────┘"
     echo ""
     
+    LDAP_MODE="local"
     CONFIGURE_LDAP=false
+    
     if [ "$INTERACTIVE" = true ]; then
-        if prompt_yes_no "Configure LDAP/Active Directory now?" "N"; then
+        if prompt_yes_no "Configure LDAP authentication?" "Y"; then
             CONFIGURE_LDAP=true
         fi
     fi
     
     if [ "$CONFIGURE_LDAP" = true ]; then
-        prompt_input "LDAP server URL (e.g., ldap://ad-server:389)" "ldap://your-ad-server:389" LDAP_URL
-        prompt_input "Base DN (e.g., DC=company,DC=com)" "DC=domain,DC=com" LDAP_BASE_DN
-        prompt_input "Bind DN (service account)" "CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com" LDAP_BIND_DN
-        prompt_secret "Bind password" LDAP_BIND_PASSWORD
-        LDAP_BIND_PASSWORD="${LDAP_BIND_PASSWORD:-your_ldap_password}"
-        prompt_input "User search base" "OU=Users,DC=domain,DC=com" LDAP_USER_SEARCH_BASE
-        prompt_input "Group search base" "OU=Groups,DC=domain,DC=com" LDAP_GROUP_SEARCH_BASE
+        echo ""
+        echo -e "${YELLOW}Select LDAP Mode:${NC}"
+        echo ""
+        echo "  1) Local OpenLDAP (Docker) - Recommended for development"
+        echo "     • Auto-configured with workflow users & groups"
+        echo "     • Pre-created: admin, author, reviewer, publisher users"
+        echo "     • Groups: Admins, Authors, Reviewers, Publishers"
+        echo "     • No external dependencies"
+        echo ""
+        echo "  2) Common LDAP (HCL DX / Active Directory)"
+        echo "     • Connect to existing enterprise LDAP"
+        echo "     • Same user directory as HCL DX"
+        echo "     • Requires LDAP server details"
+        echo ""
+        read -p "Enter choice [1]: " ldap_choice
+        ldap_choice="${ldap_choice:-1}"
+        
+        case "$ldap_choice" in
+            1)
+                LDAP_MODE="local"
+                echo ""
+                print_info "Local OpenLDAP selected"
+                print_success "Docker OpenLDAP will be configured automatically!"
+                echo ""
+                print_info "Default Local LDAP Users (password: 'password'):"
+                echo "  • admin    - Full system access"
+                echo "  • author   - Content creation"
+                echo "  • reviewer - Content review & approval"
+                echo "  • publisher - Publish to HCL DX"
+                echo ""
+                
+                # Local LDAP settings (Docker OpenLDAP)
+                LDAP_URL="ldap://openldap:389"
+                LDAP_BASE_DN="dc=hcldx,dc=local"
+                LDAP_BIND_DN="cn=admin,dc=hcldx,dc=local"
+                LDAP_BIND_PASSWORD="admin_password"
+                LDAP_USER_SEARCH_BASE="ou=Users,dc=hcldx,dc=local"
+                LDAP_GROUP_SEARCH_BASE="ou=Groups,dc=hcldx,dc=local"
+                LDAP_ADMIN_PASSWORD="admin_password"
+                LDAP_CONFIG_PASSWORD="config_password"
+                LDAP_ORGANISATION="HCL DX Composer"
+                LDAP_DOMAIN="hcldx.local"
+                ;;
+            2)
+                LDAP_MODE="common"
+                echo ""
+                print_info "Common LDAP (HCL DX / Active Directory) selected"
+                echo ""
+                prompt_input "LDAP server URL" "ldap://your-ldap-server:389" LDAP_URL
+                prompt_input "Base DN" "DC=company,DC=com" LDAP_BASE_DN
+                prompt_input "Bind DN (service account)" "CN=ServiceAccount,OU=ServiceAccounts,DC=company,DC=com" LDAP_BIND_DN
+                prompt_secret "Bind password" LDAP_BIND_PASSWORD
+                LDAP_BIND_PASSWORD="${LDAP_BIND_PASSWORD:-your_ldap_password}"
+                prompt_input "User search base" "OU=Users,DC=company,DC=com" LDAP_USER_SEARCH_BASE
+                prompt_input "Group search base" "OU=Groups,DC=company,DC=com" LDAP_GROUP_SEARCH_BASE
+                
+                # Not used for common LDAP
+                LDAP_ADMIN_PASSWORD=""
+                LDAP_CONFIG_PASSWORD=""
+                LDAP_ORGANISATION=""
+                LDAP_DOMAIN=""
+                ;;
+            *)
+                LDAP_MODE="local"
+                print_warning "Invalid choice, defaulting to Local OpenLDAP"
+                LDAP_URL="ldap://openldap:389"
+                LDAP_BASE_DN="dc=hcldx,dc=local"
+                LDAP_BIND_DN="cn=admin,dc=hcldx,dc=local"
+                LDAP_BIND_PASSWORD="admin_password"
+                LDAP_USER_SEARCH_BASE="ou=Users,dc=hcldx,dc=local"
+                LDAP_GROUP_SEARCH_BASE="ou=Groups,dc=hcldx,dc=local"
+                LDAP_ADMIN_PASSWORD="admin_password"
+                LDAP_CONFIG_PASSWORD="config_password"
+                LDAP_ORGANISATION="HCL DX Composer"
+                LDAP_DOMAIN="hcldx.local"
+                ;;
+        esac
+        
+        print_success "LDAP mode configured: ${LDAP_MODE}"
     else
-        LDAP_URL="ldap://your-ad-server:389"
-        LDAP_BASE_DN="DC=domain,DC=com"
-        LDAP_BIND_DN="CN=ServiceAccount,OU=ServiceAccounts,DC=domain,DC=com"
-        LDAP_BIND_PASSWORD="your_ldap_password"
-        LDAP_USER_SEARCH_BASE="OU=Users,DC=domain,DC=com"
-        LDAP_GROUP_SEARCH_BASE="OU=Groups,DC=domain,DC=com"
-        print_warning "LDAP not configured. Update .env file later to enable SSO."
+        # Default to local LDAP
+        LDAP_MODE="local"
+        LDAP_URL="ldap://openldap:389"
+        LDAP_BASE_DN="dc=hcldx,dc=local"
+        LDAP_BIND_DN="cn=admin,dc=hcldx,dc=local"
+        LDAP_BIND_PASSWORD="admin_password"
+        LDAP_USER_SEARCH_BASE="ou=Users,dc=hcldx,dc=local"
+        LDAP_GROUP_SEARCH_BASE="ou=Groups,dc=hcldx,dc=local"
+        LDAP_ADMIN_PASSWORD="admin_password"
+        LDAP_CONFIG_PASSWORD="config_password"
+        LDAP_ORGANISATION="HCL DX Composer"
+        LDAP_DOMAIN="hcldx.local"
+        print_info "Using Local OpenLDAP (default). Run setup again to change."
     fi
     
     #---------------------------------------------------------------------------
@@ -806,22 +902,35 @@ FRONTEND_PORT=${FRONTEND_PORT}
 VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 #===============================================================================
-# LDAP / ACTIVE DIRECTORY CONFIGURATION
+# LDAP AUTHENTICATION CONFIGURATION (API Integration)
 # 
-# Enterprise Single Sign-On (SSO) settings
-# Connect to your organization's Active Directory for user authentication
+# All authentication happens through the API. Choose your LDAP mode:
 #
-# LDAP_URL: Your AD server (ldap:// for port 389, ldaps:// for port 636)
-# LDAP_BASE_DN: Root of your directory tree
-# LDAP_BIND_DN: Service account with read access to AD
-# LDAP_BIND_PASSWORD: Service account password
+# LDAP_MODE Options:
+# ─────────────────────────────────────────────────────────────────────────────
+# 'local'  - Docker OpenLDAP container (included, recommended for dev/test)
+#            • Pre-configured users: admin, author, reviewer, publisher
+#            • Pre-configured groups: Admins, Authors, Reviewers, Publishers
+#            • Password for all users: 'password'
+#
+# 'common' - Shared LDAP with HCL DX (Active Directory / Enterprise LDAP)
+#            • Same users as HCL DX Portal
+#            • Enterprise SSO integration
+#            • Configure your LDAP server details below
 #===============================================================================
+LDAP_MODE=${LDAP_MODE}
 LDAP_URL=${LDAP_URL}
 LDAP_BASE_DN=${LDAP_BASE_DN}
 LDAP_BIND_DN=${LDAP_BIND_DN}
 LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
 LDAP_USER_SEARCH_BASE=${LDAP_USER_SEARCH_BASE}
 LDAP_GROUP_SEARCH_BASE=${LDAP_GROUP_SEARCH_BASE}
+
+# Local OpenLDAP Docker Settings (only used when LDAP_MODE=local)
+LDAP_ADMIN_PASSWORD=${LDAP_ADMIN_PASSWORD}
+LDAP_CONFIG_PASSWORD=${LDAP_CONFIG_PASSWORD}
+LDAP_ORGANISATION=${LDAP_ORGANISATION}
+LDAP_DOMAIN=${LDAP_DOMAIN}
 
 #===============================================================================
 # HCL DIGITAL EXPERIENCE API CONFIGURATION
@@ -991,11 +1100,18 @@ echo ""
 
 # Check what needs configuration
 NEEDS_CONFIG=false
-if grep -q "your-ad-server" .env 2>/dev/null; then
-    echo -e "  LDAP:         ${YELLOW}⚠ Not configured${NC}"
-    NEEDS_CONFIG=true
+LDAP_MODE_CHECK=$(grep "^LDAP_MODE=" .env 2>/dev/null | cut -d'=' -f2)
+if [ "$LDAP_MODE_CHECK" = "local" ]; then
+    echo -e "  LDAP:         ${GREEN}✓ Local OpenLDAP (Docker)${NC}"
+elif [ "$LDAP_MODE_CHECK" = "common" ]; then
+    if grep -q "your-ldap-server" .env 2>/dev/null; then
+        echo -e "  LDAP:         ${YELLOW}⚠ Common LDAP (not configured)${NC}"
+        NEEDS_CONFIG=true
+    else
+        echo -e "  LDAP:         ${GREEN}✓ Common LDAP (Enterprise)${NC}"
+    fi
 else
-    echo -e "  LDAP:         ${GREEN}✓ Configured${NC}"
+    echo -e "  LDAP:         ${GREEN}✓ Local OpenLDAP (Docker)${NC}"
 fi
 
 if grep -q "your-dx-server" .env 2>/dev/null; then
@@ -1019,7 +1135,7 @@ echo ""
 
 if [ "$NEEDS_CONFIG" = true ]; then
     echo -e "  ${YELLOW}1.${NC} Edit ${BLUE}.env${NC} file to configure:"
-    grep -q "your-ad-server" .env 2>/dev/null && echo -e "     • LDAP/Active Directory settings"
+    grep -q "your-ldap-server" .env 2>/dev/null && echo -e "     • Common LDAP server settings"
     grep -q "your-dx-server" .env 2>/dev/null && echo -e "     • HCL DX server details"
     echo ""
     echo -e "  ${YELLOW}2.${NC} Deploy the application:"
