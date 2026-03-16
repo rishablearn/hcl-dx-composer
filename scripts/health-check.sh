@@ -36,19 +36,53 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 #-------------------------------------------------------------------------------
+# Detect OS type
+#-------------------------------------------------------------------------------
+detect_os() {
+    OS="unknown"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+    elif [[ -f /etc/os-release ]]; then
+        OS="linux"
+    fi
+    export OS
+}
+
+#-------------------------------------------------------------------------------
+# Detect if sudo is required for Docker commands
+#-------------------------------------------------------------------------------
+detect_docker_sudo() {
+    SUDO_CMD=""
+    
+    if [[ "$OS" == "macos" ]]; then
+        SUDO_CMD=""
+    elif docker info &> /dev/null 2>&1; then
+        SUDO_CMD=""
+    elif groups 2>/dev/null | grep -q docker; then
+        SUDO_CMD=""
+    elif [[ "$OS" == "linux" ]]; then
+        SUDO_CMD="sudo"
+    fi
+    
+    export SUDO_CMD
+}
+
+#-------------------------------------------------------------------------------
 # Detect Docker Compose command (v1 vs v2)
 #-------------------------------------------------------------------------------
 detect_compose() {
-    if docker compose version &> /dev/null 2>&1; then
-        COMPOSE_CMD="docker compose"
+    if $SUDO_CMD docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="$SUDO_CMD docker compose"
     elif command -v docker-compose &> /dev/null; then
-        COMPOSE_CMD="docker-compose"
+        COMPOSE_CMD="$SUDO_CMD docker-compose"
     else
         COMPOSE_CMD=""
     fi
     export COMPOSE_CMD
 }
 
+detect_os
+detect_docker_sudo
 detect_compose
 
 # Load environment
@@ -143,7 +177,7 @@ echo "────────────────────────�
 if [ -n "$COMPOSE_CMD" ]; then
     CONTAINER_IDS=$($COMPOSE_CMD ps -q 2>/dev/null)
     if [ -n "$CONTAINER_IDS" ]; then
-        docker stats --no-stream --format "  {{.Name}}:\t{{.CPUPerc}}\t{{.MemUsage}}" $CONTAINER_IDS 2>/dev/null || echo "  Unable to get stats"
+        $SUDO_CMD docker stats --no-stream --format "  {{.Name}}:\t{{.CPUPerc}}\t{{.MemUsage}}" $CONTAINER_IDS 2>/dev/null || echo "  Unable to get stats"
     else
         echo "  No containers running"
     fi

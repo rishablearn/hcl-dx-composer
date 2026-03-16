@@ -38,13 +38,45 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 #-------------------------------------------------------------------------------
+# Detect OS type
+#-------------------------------------------------------------------------------
+detect_os() {
+    OS="unknown"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+    elif [[ -f /etc/os-release ]]; then
+        OS="linux"
+    fi
+    export OS
+}
+
+#-------------------------------------------------------------------------------
+# Detect if sudo is required for Docker commands
+#-------------------------------------------------------------------------------
+detect_docker_sudo() {
+    SUDO_CMD=""
+    
+    if [[ "$OS" == "macos" ]]; then
+        SUDO_CMD=""
+    elif docker info &> /dev/null 2>&1; then
+        SUDO_CMD=""
+    elif groups 2>/dev/null | grep -q docker; then
+        SUDO_CMD=""
+    elif [[ "$OS" == "linux" ]]; then
+        SUDO_CMD="sudo"
+    fi
+    
+    export SUDO_CMD
+}
+
+#-------------------------------------------------------------------------------
 # Detect Docker Compose command (v1 vs v2)
 #-------------------------------------------------------------------------------
 detect_compose() {
-    if docker compose version &> /dev/null 2>&1; then
-        COMPOSE_CMD="docker compose"
+    if $SUDO_CMD docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="$SUDO_CMD docker compose"
     elif command -v docker-compose &> /dev/null; then
-        COMPOSE_CMD="docker-compose"
+        COMPOSE_CMD="$SUDO_CMD docker-compose"
     else
         print_error "Docker Compose not found"
         exit 1
@@ -52,6 +84,8 @@ detect_compose() {
     export COMPOSE_CMD
 }
 
+detect_os
+detect_docker_sudo
 detect_compose
 
 # Print banner
@@ -248,6 +282,6 @@ case $ACTION in
         
         # Show resource usage
         echo -e "${CYAN}Resource Usage:${NC}"
-        docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD ps -q) 2>/dev/null || true
+        $SUDO_CMD docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD ps -q) 2>/dev/null || true
         ;;
 esac

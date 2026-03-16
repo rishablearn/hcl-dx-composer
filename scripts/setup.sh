@@ -49,6 +49,30 @@ detect_os() {
 }
 
 #-------------------------------------------------------------------------------
+# Detect if sudo is required for Docker commands
+# On Linux, Docker typically requires sudo unless user is in docker group
+#-------------------------------------------------------------------------------
+detect_docker_sudo() {
+    SUDO_CMD=""
+    
+    # macOS with Docker Desktop doesn't need sudo
+    if [[ "$OS" == "macos" ]]; then
+        SUDO_CMD=""
+    # Check if user can run docker without sudo
+    elif docker info &> /dev/null 2>&1; then
+        SUDO_CMD=""
+    # Check if user is in docker group
+    elif groups 2>/dev/null | grep -q docker; then
+        SUDO_CMD=""
+    # Default to sudo on Linux
+    elif [[ "$OS" == "linux" ]]; then
+        SUDO_CMD="sudo"
+    fi
+    
+    export SUDO_CMD
+}
+
+#-------------------------------------------------------------------------------
 # Colors for output (with fallback for non-color terminals)
 #-------------------------------------------------------------------------------
 setup_colors() {
@@ -71,6 +95,7 @@ setup_colors() {
 
 setup_colors
 detect_os
+detect_docker_sudo
 
 # Print banner
 echo -e "${GREEN}"
@@ -80,6 +105,9 @@ echo "║              Bharat Petroleum Digital Platform               ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 echo -e "Detected: ${CYAN}${OS}${NC} / ${CYAN}${DISTRO}${NC} / Package Manager: ${CYAN}${PKG_MANAGER}${NC}"
+if [ -n "$SUDO_CMD" ]; then
+    echo -e "Docker commands will use: ${YELLOW}sudo${NC}"
+fi
 
 # Get script directory (POSIX compatible)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -122,7 +150,7 @@ print_step "Checking prerequisites..."
 
 # Check Docker
 if command -v docker &> /dev/null; then
-    DOCKER_VERSION=$(docker --version 2>/dev/null | cut -d ' ' -f3 | cut -d ',' -f1)
+    DOCKER_VERSION=$($SUDO_CMD docker --version 2>/dev/null | cut -d ' ' -f3 | cut -d ',' -f1)
     print_success "Docker installed (v${DOCKER_VERSION:-unknown})"
 else
     print_error "Docker is not installed. Please install Docker first."
@@ -160,11 +188,11 @@ fi
 
 # Check Docker Compose (v1 or v2)
 COMPOSE_CMD=""
-if docker compose version &> /dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
+if $SUDO_CMD docker compose version &> /dev/null 2>&1; then
+    COMPOSE_CMD="$SUDO_CMD docker compose"
     print_success "Docker Compose v2 installed"
 elif command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
+    COMPOSE_CMD="$SUDO_CMD docker-compose"
     print_success "Docker Compose v1 installed"
 else
     print_error "Docker Compose is not installed."
@@ -183,7 +211,7 @@ else
 fi
 
 # Check if Docker is running
-if docker info &> /dev/null 2>&1; then
+if $SUDO_CMD docker info &> /dev/null 2>&1; then
     print_success "Docker daemon is running"
 else
     print_error "Docker daemon is not running."
@@ -193,8 +221,13 @@ else
             echo "  Please start Docker Desktop"
             ;;
         linux)
-            echo "  Try: sudo systemctl start docker"
-            echo "  Or:  sudo service docker start"
+            echo "  Start Docker with:"
+            echo "    sudo systemctl start docker"
+            echo "  Or:"
+            echo "    sudo service docker start"
+            echo ""
+            echo "  Enable Docker on boot:"
+            echo "    sudo systemctl enable docker"
             ;;
     esac
     exit 1
