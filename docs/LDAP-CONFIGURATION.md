@@ -500,27 +500,42 @@ docker logs -f hcldx-openldap
 ### Local LDAP Quick Start
 
 ```bash
-# 1. Run setup
+# 1. Run setup (select Local OpenLDAP when prompted)
 ./scripts/setup.sh
-# Select: LDAP Mode = Local OpenLDAP
 
-# 2. Deploy
+# 2. Deploy - OpenLDAP starts automatically!
 ./scripts/deploy.sh --build
 
-# 3. Login with pre-configured users
+# 3. Verify LDAP is running
+./scripts/deploy.sh --status
+
+# 4. Login with pre-configured users
 # admin/password, author/password, reviewer/password, publisher/password
+
+# 5. Manage users (optional)
+./ldap/scripts/manage-ldap.sh list-users
+./ldap/scripts/manage-ldap.sh add-user john password123 John Doe
 ```
 
 ### Common LDAP Quick Start
 
 ```bash
-# 1. Run setup
+# 1. Run setup (select Common LDAP when prompted)
 ./scripts/setup.sh
-# Select: LDAP Mode = Common LDAP
 # Enter your LDAP server details
 
-# 2. Configure role mappings in Admin panel
-
-# 3. Deploy
+# 2. Deploy (no OpenLDAP container needed)
 ./scripts/deploy.sh --build
+
+# 3. Configure role mappings in Admin panel
+# Map your AD/LDAP groups to application roles
 ```
+
+### Deployment Notes
+
+The `deploy.sh` script automatically detects your LDAP mode from `.env`:
+
+- **LDAP_MODE=local**: Starts OpenLDAP container with `--profile local-ldap`
+- **LDAP_MODE=common**: Skips OpenLDAP container, uses external LDAP
+
+You don't need to manually specify Docker Compose profiles - it's handled automatically!

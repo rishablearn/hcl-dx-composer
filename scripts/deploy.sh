@@ -264,14 +264,27 @@ fi
 print_success "Docker is running"
 
 #-------------------------------------------------------------------------------
+# Detect LDAP Mode from .env
+#-------------------------------------------------------------------------------
+LDAP_MODE=$(grep "^LDAP_MODE=" .env 2>/dev/null | cut -d'=' -f2 || echo "local")
+LDAP_PROFILE=""
+
+if [ "$LDAP_MODE" = "local" ]; then
+    LDAP_PROFILE="--profile local-ldap"
+    print_success "LDAP Mode: Local OpenLDAP (Docker)"
+else
+    print_success "LDAP Mode: Common LDAP (External)"
+fi
+
+#-------------------------------------------------------------------------------
 # Execute action
 #-------------------------------------------------------------------------------
 case $ACTION in
     up)
         print_step "Starting HCL DX Composer..."
         
-        # Build Docker Compose command
-        UP_CMD="$COMPOSE_CMD up"
+        # Build Docker Compose command with LDAP profile if needed
+        UP_CMD="$COMPOSE_CMD $LDAP_PROFILE up"
         
         if [ "$BUILD" = true ]; then
             UP_CMD="$UP_CMD --build"
@@ -312,7 +325,7 @@ case $ACTION in
         
     stop)
         print_step "Stopping containers..."
-        $COMPOSE_CMD stop
+        $COMPOSE_CMD $LDAP_PROFILE stop
         print_success "Containers stopped"
         ;;
         
@@ -320,7 +333,7 @@ case $ACTION in
         print_step "Stopping and removing containers..."
         read -p "This will remove all containers. Continue? (y/N): " confirm
         if [[ $confirm =~ ^[Yy]$ ]]; then
-            $COMPOSE_CMD down
+            $COMPOSE_CMD $LDAP_PROFILE down
             print_success "Containers removed"
         else
             print_warning "Cancelled"
@@ -329,23 +342,30 @@ case $ACTION in
         
     restart)
         print_step "Restarting services..."
-        $COMPOSE_CMD restart
+        $COMPOSE_CMD $LDAP_PROFILE restart
         print_success "Services restarted"
         ;;
         
     logs)
         print_step "Showing logs (Ctrl+C to exit)..."
-        $COMPOSE_CMD logs -f --tail=100
+        $COMPOSE_CMD $LDAP_PROFILE logs -f --tail=100
         ;;
         
     status)
         print_step "Service Status:"
         echo ""
-        $COMPOSE_CMD ps
+        $COMPOSE_CMD $LDAP_PROFILE ps
         echo ""
+        
+        # Show LDAP status for local mode
+        if [ "$LDAP_MODE" = "local" ]; then
+            echo -e "${CYAN}Local LDAP Users (password: 'password'):${NC}"
+            echo "  admin, author, reviewer, publisher"
+            echo ""
+        fi
         
         # Show resource usage
         echo -e "${CYAN}Resource Usage:${NC}"
-        $SUDO_CMD docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD ps -q) 2>/dev/null || true
+        $SUDO_CMD docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD $LDAP_PROFILE ps -q) 2>/dev/null || true
         ;;
 esac
