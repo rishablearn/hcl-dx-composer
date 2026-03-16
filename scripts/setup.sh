@@ -507,40 +507,40 @@ if [ ! -f ".env" ]; then
     # Hostname Configuration
     #---------------------------------------------------------------------------
     print_step "Server Hostname Configuration"
-    print_info "Configure the hostname for accessing the application."
+    print_info "Enter the hostname or IP address to access this application."
     echo ""
     
-    # Get current hostname - clean it up
-    CURRENT_HOSTNAME=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "localhost")
-    # Remove any trailing newlines or spaces
-    CURRENT_HOSTNAME=$(echo "$CURRENT_HOSTNAME" | tr -d '\n' | xargs)
-    
-    # If hostname is empty or has issues, use localhost
-    if [ -z "$CURRENT_HOSTNAME" ] || [ "$CURRENT_HOSTNAME" = "" ]; then
-        CURRENT_HOSTNAME="localhost"
-    fi
-    
-    echo -e "${CYAN}Hostname Options:${NC}"
+    echo -e "${CYAN}Hostname/IP Address:${NC}"
     echo ""
-    echo "  Your computer's hostname: ${YELLOW}${CURRENT_HOSTNAME}${NC}"
+    echo "  Examples:"
+    echo "    • ${YELLOW}myserver${NC} (short hostname)"
+    echo "    • ${YELLOW}myserver.local${NC} (with domain)"
+    echo "    • ${YELLOW}192.168.1.100${NC} (IP address)"
+    echo "    • ${YELLOW}localhost${NC} (local only)"
     echo ""
-    echo "  Use the hostname (not localhost) for:"
-    echo "  • Accessing from other devices on the network"
-    echo "  • SSL certificates to work properly"
-    echo "  • Production deployments"
+    echo "  Tips:"
+    echo "    • Use IP address for most reliable access"
+    echo "    • Use hostname for SSL certificates"
+    echo "    • Run 'hostname' or 'ip addr' to find your values"
     echo ""
     
-    prompt_input "Server hostname" "${CURRENT_HOSTNAME}" APP_HOSTNAME
+    # Ask user directly - no auto-detection
+    read -p "Enter server hostname or IP [localhost]: " APP_HOSTNAME
+    APP_HOSTNAME="${APP_HOSTNAME:-localhost}"
     
-    # Clean up hostname - remove spaces and newlines
-    APP_HOSTNAME=$(echo "$APP_HOSTNAME" | tr -d '\n' | xargs)
+    # Clean up - remove spaces and newlines
+    APP_HOSTNAME=$(echo "$APP_HOSTNAME" | tr -d '\n\r' | xargs)
     
-    # If empty, use default
+    # Validate not empty
     if [ -z "$APP_HOSTNAME" ]; then
-        APP_HOSTNAME="${CURRENT_HOSTNAME}"
+        APP_HOSTNAME="localhost"
     fi
     
     print_success "Hostname configured: ${APP_HOSTNAME}"
+    echo ""
+    echo -e "  Access URLs will be:"
+    echo -e "    HTTP:  ${BLUE}http://${APP_HOSTNAME}:3000${NC}"
+    echo -e "    HTTPS: ${BLUE}https://${APP_HOSTNAME}:443${NC} (if SSL enabled)"
     
     #---------------------------------------------------------------------------
     # Frontend Configuration
