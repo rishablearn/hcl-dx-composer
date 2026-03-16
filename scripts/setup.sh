@@ -861,6 +861,176 @@ if [ ! -f ".env" ]; then
     fi
     
     #---------------------------------------------------------------------------
+    # SSL/HTTPS Configuration
+    #---------------------------------------------------------------------------
+    print_section "SSL/HTTPS Configuration"
+    
+    SSL_ENABLED="false"
+    SSL_TYPE="none"
+    SSL_DOMAIN="localhost"
+    
+    echo ""
+    echo -e "${CYAN}Do you want to enable HTTPS/SSL?${NC}"
+    echo ""
+    echo "  1) No SSL (HTTP only) - Development/Testing"
+    echo "  2) Self-signed certificate - Development/Internal use"
+    echo "  3) Let's Encrypt - Production (requires public domain)"
+    echo "  4) Import existing certificate - Enterprise/Custom CA"
+    echo ""
+    read -p "Enter choice [1]: " ssl_choice
+    ssl_choice="${ssl_choice:-1}"
+    
+    case "$ssl_choice" in
+        1)
+            SSL_ENABLED="false"
+            SSL_TYPE="none"
+            print_info "SSL disabled - using HTTP only"
+            ;;
+        2)
+            SSL_ENABLED="true"
+            SSL_TYPE="self-signed"
+            echo ""
+            prompt_input "Domain name for certificate" "localhost" SSL_DOMAIN
+            prompt_input "Certificate validity (days)" "365" SSL_VALIDITY_DAYS
+            
+            print_info "Generating self-signed certificate..."
+            
+            # Create SSL directories
+            mkdir -p ssl/certs ssl/private
+            chmod 700 ssl/private
+            
+            # Create OpenSSL config
+            cat > ssl/openssl.cnf << SSLEOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_req
+
+[dn]
+C = US
+ST = State
+L = City
+O = HCL DX Composer
+OU = Development
+CN = ${SSL_DOMAIN}
+
+[v3_req]
+subjectAltName = @alt_names
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+
+[alt_names]
+DNS.1 = ${SSL_DOMAIN}
+DNS.2 = localhost
+DNS.3 = *.localhost
+IP.1 = 127.0.0.1
+IP.2 = ::1
+SSLEOF
+            
+            # Generate certificate
+            openssl genrsa -out ssl/private/server.key 2048 2>/dev/null
+            openssl req -new -x509 \
+                -key ssl/private/server.key \
+                -out ssl/certs/server.crt \
+                -days ${SSL_VALIDITY_DAYS:-365} \
+                -config ssl/openssl.cnf \
+                -extensions v3_req 2>/dev/null
+            
+            chmod 644 ssl/certs/server.crt
+            chmod 600 ssl/private/server.key
+            
+            print_success "Self-signed certificate generated for ${SSL_DOMAIN}"
+            print_warning "Browsers will show security warning for self-signed certificates"
+            ;;
+        3)
+            SSL_ENABLED="true"
+            SSL_TYPE="letsencrypt"
+            echo ""
+            prompt_input "Domain name (must be publicly accessible)" "" SSL_DOMAIN
+            prompt_input "Email for Let's Encrypt notifications" "" SSL_EMAIL
+            
+            if [ -z "$SSL_DOMAIN" ] || [ -z "$SSL_EMAIL" ]; then
+                print_error "Domain and email are required for Let's Encrypt"
+                SSL_ENABLED="false"
+                SSL_TYPE="none"
+            else
+                print_info "Let's Encrypt will be configured during deployment"
+                print_warning "Ensure port 80 is accessible from the internet"
+                print_warning "DNS must point to this server before deployment"
+            fi
+            ;;
+        4)
+            SSL_ENABLED="true"
+            SSL_TYPE="imported"
+            echo ""
+            print_info "Import your existing SSL certificate"
+            prompt_input "Path to certificate file (.crt/.pem)" "" SSL_CERT_PATH
+            prompt_input "Path to private key file (.key)" "" SSL_KEY_PATH
+            prompt_input "Path to CA chain file (optional)" "" SSL_CHAIN_PATH
+            
+            if [ -z "$SSL_CERT_PATH" ] || [ -z "$SSL_KEY_PATH" ]; then
+                print_error "Certificate and key paths are required"
+                SSL_ENABLED="false"
+                SSL_TYPE="none"
+            elif [ ! -f "$SSL_CERT_PATH" ]; then
+                print_error "Certificate file not found: $SSL_CERT_PATH"
+                SSL_ENABLED="false"
+                SSL_TYPE="none"
+            elif [ ! -f "$SSL_KEY_PATH" ]; then
+                print_error "Key file not found: $SSL_KEY_PATH"
+                SSL_ENABLED="false"
+                SSL_TYPE="none"
+            else
+                # Create SSL directories
+                mkdir -p ssl/certs ssl/private
+                chmod 700 ssl/private
+                
+                # Copy certificate
+                cp "$SSL_CERT_PATH" ssl/certs/server.crt
+                cp "$SSL_KEY_PATH" ssl/private/server.key
+                
+                # Append chain if provided
+                if [ -n "$SSL_CHAIN_PATH" ] && [ -f "$SSL_CHAIN_PATH" ]; then
+                    cat "$SSL_CHAIN_PATH" >> ssl/certs/server.crt
+                    print_success "Certificate chain appended"
+                fi
+                
+                chmod 644 ssl/certs/server.crt
+                chmod 600 ssl/private/server.key
+                
+                # Verify certificate and key match
+                cert_mod=$(openssl x509 -noout -modulus -in ssl/certs/server.crt 2>/dev/null | openssl md5)
+                key_mod=$(openssl rsa -noout -modulus -in ssl/private/server.key 2>/dev/null | openssl md5)
+                
+                if [ "$cert_mod" != "$key_mod" ]; then
+                    print_error "Certificate and private key do not match!"
+                    rm -f ssl/certs/server.crt ssl/private/server.key
+                    SSL_ENABLED="false"
+                    SSL_TYPE="none"
+                else
+                    # Extract domain from certificate
+                    SSL_DOMAIN=$(openssl x509 -noout -subject -in ssl/certs/server.crt 2>/dev/null | sed -n 's/.*CN=\([^,\/]*\).*/\1/p')
+                    print_success "Certificate imported successfully for ${SSL_DOMAIN:-unknown domain}"
+                fi
+            fi
+            ;;
+        *)
+            SSL_ENABLED="false"
+            SSL_TYPE="none"
+            print_info "SSL disabled - using HTTP only"
+            ;;
+    esac
+    
+    # Set SSL port
+    if [ "$SSL_ENABLED" = "true" ]; then
+        prompt_input "HTTPS port" "443" FRONTEND_SSL_PORT
+        print_success "SSL configured: ${SSL_TYPE} (https://${SSL_DOMAIN}:${FRONTEND_SSL_PORT})"
+    fi
+    
+    #---------------------------------------------------------------------------
     # Write configuration file
     #---------------------------------------------------------------------------
     print_step "Writing configuration..."
@@ -1064,18 +1234,19 @@ MAX_UPLOAD_SIZE=52428800
 # SSL/TLS CONFIGURATION
 # 
 # SSL_ENABLED: Enable HTTPS (true/false)
-# SSL_TYPE: Certificate type (self-signed, letsencrypt, imported)
+# SSL_TYPE: Certificate type (none, self-signed, letsencrypt, imported)
 # SSL_DOMAIN: Domain name for the certificate
 #
-# To configure SSL, run:
+# To reconfigure SSL later, run:
 #   ./scripts/ssl-setup.sh self-signed localhost
 #   ./scripts/ssl-setup.sh letsencrypt yourdomain.com admin@yourdomain.com
 #   ./scripts/ssl-setup.sh import /path/to/cert.pem /path/to/key.pem
 #===============================================================================
-SSL_ENABLED=${SSL_ENABLED:-false}
-SSL_TYPE=${SSL_TYPE:-self-signed}
-SSL_DOMAIN=${SSL_DOMAIN:-localhost}
-FRONTEND_SSL_PORT=443
+SSL_ENABLED=${SSL_ENABLED}
+SSL_TYPE=${SSL_TYPE}
+SSL_DOMAIN=${SSL_DOMAIN}
+FRONTEND_SSL_PORT=${FRONTEND_SSL_PORT:-443}
+SSL_EMAIL=${SSL_EMAIL:-}
 EOF
 
     print_success ".env file created successfully!"
@@ -1168,11 +1339,27 @@ else
     echo -e "  AI Features:  ${GREEN}✓ Configured${NC}"
 fi
 
+# Show SSL status
+SSL_ENABLED_CHECK=$(grep "^SSL_ENABLED=" .env 2>/dev/null | cut -d'=' -f2)
+SSL_TYPE_CHECK=$(grep "^SSL_TYPE=" .env 2>/dev/null | cut -d'=' -f2)
+SSL_DOMAIN_CHECK=$(grep "^SSL_DOMAIN=" .env 2>/dev/null | cut -d'=' -f2)
+if [ "$SSL_ENABLED_CHECK" = "true" ]; then
+    echo -e "  SSL/HTTPS:    ${GREEN}✓ Enabled (${SSL_TYPE_CHECK} - ${SSL_DOMAIN_CHECK})${NC}"
+else
+    echo -e "  SSL/HTTPS:    ${BLUE}○ Disabled (HTTP only)${NC}"
+fi
+
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${CYAN}  Next Steps${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+
+# Determine deploy command based on SSL
+DEPLOY_CMD="./scripts/deploy.sh --build"
+if [ "$SSL_ENABLED_CHECK" = "true" ]; then
+    DEPLOY_CMD="./scripts/deploy.sh --ssl --build"
+fi
 
 if [ "$NEEDS_CONFIG" = true ]; then
     echo -e "  ${YELLOW}1.${NC} Edit ${BLUE}.env${NC} file to configure:"
@@ -1180,10 +1367,10 @@ if [ "$NEEDS_CONFIG" = true ]; then
     grep -q "your-dx-server" .env 2>/dev/null && echo -e "     • HCL DX server details"
     echo ""
     echo -e "  ${YELLOW}2.${NC} Deploy the application:"
-    echo -e "     ${BLUE}./scripts/deploy.sh --build${NC}"
+    echo -e "     ${BLUE}${DEPLOY_CMD}${NC}"
 else
     echo -e "  ${YELLOW}1.${NC} Deploy the application:"
-    echo -e "     ${BLUE}./scripts/deploy.sh --build${NC}"
+    echo -e "     ${BLUE}${DEPLOY_CMD}${NC}"
 fi
 
 # Show LDAP-specific info
