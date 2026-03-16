@@ -160,6 +160,7 @@ ACTION="up"
 BUILD=false
 DETACH=true
 FORCE_RECREATE=false
+SSL_MODE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -173,6 +174,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --recreate|-r)
             FORCE_RECREATE=true
+            shift
+            ;;
+        --ssl)
+            SSL_MODE=true
             shift
             ;;
         --stop|-s)
@@ -211,7 +216,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --restart         Restart all services"
             echo "  --logs, -l        Show container logs (add -f to follow)"
             echo "  --status          Show container status and resource usage"
-            echo "  --help, -h        Show this help message"
+            echo "  --ssl             Enable SSL/HTTPS mode"
+echo "  --help, -h        Show this help message"
             echo ""
             echo -e "${CYAN}EXAMPLES:${NC}"
             echo "  ./scripts/deploy.sh                # Start all services"
@@ -219,6 +225,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./scripts/deploy.sh --stop         # Stop services"
             echo "  ./scripts/deploy.sh --logs         # View logs"
             echo "  ./scripts/deploy.sh --restart      # Restart services"
+echo "  ./scripts/deploy.sh --ssl --build  # Deploy with SSL enabled"
             echo ""
             echo -e "${CYAN}COMMON WORKFLOWS:${NC}"
             echo ""
@@ -277,14 +284,37 @@ else
 fi
 
 #-------------------------------------------------------------------------------
+# Detect SSL Mode from .env or command line
+#-------------------------------------------------------------------------------
+SSL_ENABLED_ENV=$(grep "^SSL_ENABLED=" .env 2>/dev/null | cut -d'=' -f2 || echo "false")
+SSL_COMPOSE=""
+
+# Command line --ssl flag takes precedence
+if [ "$SSL_MODE" = true ] || [ "$SSL_ENABLED_ENV" = "true" ]; then
+    SSL_MODE=true
+    SSL_COMPOSE="-f docker-compose.yml -f docker-compose-ssl.yml"
+    
+    # Check if SSL certificates exist
+    if [ ! -f "ssl/certs/server.crt" ] || [ ! -f "ssl/private/server.key" ]; then
+        print_warning "SSL certificates not found. Generating self-signed certificate..."
+        ./scripts/ssl-setup.sh self-signed localhost 365
+    fi
+    
+    print_success "SSL Mode: HTTPS Enabled"
+else
+    SSL_COMPOSE="-f docker-compose.yml"
+    print_success "SSL Mode: HTTP Only"
+fi
+
+#-------------------------------------------------------------------------------
 # Execute action
 #-------------------------------------------------------------------------------
 case $ACTION in
     up)
         print_step "Starting HCL DX Composer..."
         
-        # Build Docker Compose command with LDAP profile if needed
-        UP_CMD="$COMPOSE_CMD $LDAP_PROFILE up"
+        # Build Docker Compose command with LDAP profile and SSL if needed
+        UP_CMD="$COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE up"
         
         if [ "$BUILD" = true ]; then
             UP_CMD="$UP_CMD --build"
@@ -315,9 +345,17 @@ case $ACTION in
             print_success "Deployment complete!"
             echo ""
             echo -e "Access the application:"
-            echo -e "  ${BLUE}Frontend:${NC}    http://localhost:${FRONTEND_PORT:-3000}"
-            echo -e "  ${BLUE}Backend API:${NC} http://localhost:${BACKEND_PORT:-3001}/api"
-            echo -e "  ${BLUE}Health:${NC}      http://localhost:${BACKEND_PORT:-3001}/api/health"
+            if [ "$SSL_MODE" = true ]; then
+                echo -e "  ${BLUE}Frontend:${NC}    https://localhost:${FRONTEND_SSL_PORT:-443}"
+                echo -e "  ${BLUE}Backend API:${NC} https://localhost:${FRONTEND_SSL_PORT:-443}/api"
+                echo -e "  ${BLUE}Health:${NC}      https://localhost:${FRONTEND_SSL_PORT:-443}/api/health"
+                echo ""
+                echo -e "  ${YELLOW}Note: Using self-signed certificate. Browser will show security warning.${NC}"
+            else
+                echo -e "  ${BLUE}Frontend:${NC}    http://localhost:${FRONTEND_PORT:-3000}"
+                echo -e "  ${BLUE}Backend API:${NC} http://localhost:${FRONTEND_PORT:-3000}/api"
+                echo -e "  ${BLUE}Health:${NC}      http://localhost:${BACKEND_PORT:-3001}/api/health"
+            fi
             echo ""
             echo -e "View logs: ${YELLOW}./scripts/deploy.sh --logs${NC}"
         fi
@@ -325,7 +363,7 @@ case $ACTION in
         
     stop)
         print_step "Stopping containers..."
-        $COMPOSE_CMD $LDAP_PROFILE stop
+        $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE stop
         print_success "Containers stopped"
         ;;
         
@@ -333,7 +371,7 @@ case $ACTION in
         print_step "Stopping and removing containers..."
         read -p "This will remove all containers. Continue? (y/N): " confirm
         if [[ $confirm =~ ^[Yy]$ ]]; then
-            $COMPOSE_CMD $LDAP_PROFILE down
+            $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE down
             print_success "Containers removed"
         else
             print_warning "Cancelled"
@@ -342,19 +380,19 @@ case $ACTION in
         
     restart)
         print_step "Restarting services..."
-        $COMPOSE_CMD $LDAP_PROFILE restart
+        $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE restart
         print_success "Services restarted"
         ;;
         
     logs)
         print_step "Showing logs (Ctrl+C to exit)..."
-        $COMPOSE_CMD $LDAP_PROFILE logs -f --tail=100
+        $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE logs -f --tail=100
         ;;
         
     status)
         print_step "Service Status:"
         echo ""
-        $COMPOSE_CMD $LDAP_PROFILE ps
+        $COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE ps
         echo ""
         
         # Show LDAP status for local mode
@@ -366,6 +404,6 @@ case $ACTION in
         
         # Show resource usage
         echo -e "${CYAN}Resource Usage:${NC}"
-        $SUDO_CMD docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD $LDAP_PROFILE ps -q) 2>/dev/null || true
+        $SUDO_CMD docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $($COMPOSE_CMD $SSL_COMPOSE $LDAP_PROFILE ps -q) 2>/dev/null || true
         ;;
 esac

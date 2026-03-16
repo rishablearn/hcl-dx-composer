@@ -123,7 +123,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001/api}
+        # Use relative /api path - nginx proxies to backend
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     container_name: hcl-dx-frontend
     restart: unless-stopped
     environment:

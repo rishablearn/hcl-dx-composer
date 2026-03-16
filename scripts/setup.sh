@@ -1059,6 +1059,23 @@ STABILITY_API_KEY=${STABILITY_API_KEY}
 # Default: 52428800 (50 MB)
 #===============================================================================
 MAX_UPLOAD_SIZE=52428800
+
+#===============================================================================
+# SSL/TLS CONFIGURATION
+# 
+# SSL_ENABLED: Enable HTTPS (true/false)
+# SSL_TYPE: Certificate type (self-signed, letsencrypt, imported)
+# SSL_DOMAIN: Domain name for the certificate
+#
+# To configure SSL, run:
+#   ./scripts/ssl-setup.sh self-signed localhost
+#   ./scripts/ssl-setup.sh letsencrypt yourdomain.com admin@yourdomain.com
+#   ./scripts/ssl-setup.sh import /path/to/cert.pem /path/to/key.pem
+#===============================================================================
+SSL_ENABLED=${SSL_ENABLED:-false}
+SSL_TYPE=${SSL_TYPE:-self-signed}
+SSL_DOMAIN=${SSL_DOMAIN:-localhost}
+FRONTEND_SSL_PORT=443
 EOF
 
     print_success ".env file created successfully!"
@@ -1073,6 +1090,8 @@ mkdir -p uploads/ai-generated
 mkdir -p uploads/thumbnails
 mkdir -p logs
 mkdir -p backups
+mkdir -p ssl/certs
+mkdir -p ssl/private
 
 # Create .gitkeep files to preserve empty directories in git
 touch uploads/.gitkeep
@@ -1080,9 +1099,13 @@ touch uploads/ai-generated/.gitkeep
 touch uploads/thumbnails/.gitkeep
 touch logs/.gitkeep
 touch backups/.gitkeep
+touch ssl/.gitkeep
+
+# Secure SSL private directory
+chmod 700 ssl/private
 
 print_success "Created: uploads/, uploads/ai-generated/, uploads/thumbnails/"
-print_success "Created: logs/, backups/"
+print_success "Created: logs/, backups/, ssl/"
 
 #-------------------------------------------------------------------------------
 # STEP 4: Set Permissions
@@ -1177,9 +1200,16 @@ if [ "$LDAP_MODE_FINAL" = "local" ]; then
 fi
 
 echo ""
+echo -e "  ${YELLOW}SSL/HTTPS Configuration:${NC}"
+echo -e "     ${BLUE}./scripts/ssl-setup.sh self-signed${NC}     Generate self-signed cert"
+echo -e "     ${BLUE}./scripts/ssl-setup.sh letsencrypt${NC}     Get Let's Encrypt cert"
+echo -e "     ${BLUE}./scripts/ssl-setup.sh import${NC}          Import existing cert"
+echo -e "     ${BLUE}./scripts/ssl-setup.sh status${NC}          Check certificate status"
+echo ""
 echo -e "  ${YELLOW}Other commands:${NC}"
 echo -e "     ${BLUE}./scripts/deploy.sh --help${NC}      Show deployment options"
 echo -e "     ${BLUE}./scripts/deploy.sh --status${NC}    Show service status"
+echo -e "     ${BLUE}./scripts/deploy.sh --ssl${NC}       Deploy with SSL enabled"
 echo -e "     ${BLUE}./scripts/dev.sh${NC}                Start local development"
 echo -e "     ${BLUE}./scripts/health-check.sh${NC}       Check service status"
 echo -e "     ${BLUE}./scripts/backup.sh${NC}             Backup database & files"
