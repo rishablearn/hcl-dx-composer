@@ -76,7 +76,8 @@ Before starting, gather the following based on your deployment type:
 
 #### For All Deployments
 - [ ] Server/VM with Docker installed
-- [ ] Network access to ports 3000, 3001, 5432
+- [ ] Server hostname (use `hostname` command to find it)
+- [ ] Network access to ports 3000, 3001, 5432, 443 (for SSL)
 
 #### For HCL DX Integration
 - [ ] HCL DX server hostname
@@ -350,11 +351,21 @@ grep -E "^(LDAP_MODE|HCL_DX_HOST|POSTGRES_)" .env
 
 ### Step 6: Access the Application
 
+> **Important:** Use your configured hostname instead of `localhost` for proper SSL and network access.
+
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Frontend | http://localhost:3000 | Web application |
-| Backend API | http://localhost:3001/api | REST API |
-| Health Check | http://localhost:3001/api/health | Service health |
+| Frontend (HTTP) | `http://<hostname>:3000` | Web application |
+| Frontend (HTTPS) | `https://<hostname>:443` | Web application (SSL) |
+| Backend API | `http://<hostname>:3000/api` | REST API (via nginx proxy) |
+| Health Check | `http://<hostname>:3000/health` | Service health |
+
+**Example with hostname:**
+```bash
+# If your hostname is 'myserver.local':
+http://myserver.local:3000      # HTTP
+https://myserver.local:443      # HTTPS (SSL mode)
+```
 
 ### Step 7: Login
 

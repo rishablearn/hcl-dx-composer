@@ -67,6 +67,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
+      # Server Hostname
+      APP_HOSTNAME: ${APP_HOSTNAME:-localhost}
       # Database Configuration
       DB_HOST: db
       DB_PORT: 5432
@@ -129,12 +131,19 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-production}
+      APP_HOSTNAME: ${APP_HOSTNAME:-localhost}
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
     networks:
       - hcl-dx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   hcl-dx-network:
