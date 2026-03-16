@@ -1,0 +1,65 @@
+# HCL DX Composer - Local LDAP Groups
+# Pre-configured workflow groups for role-based access control
+#
+# Groups map to application roles:
+# - Admins    -> Admin role (full access)
+# - Authors   -> Author role (create content)
+# - Reviewers -> Reviewer role (approve content)
+# - Publishers -> Publisher role (publish to HCL DX)
+
+# ============================================================================
+# ADMINS GROUP
+# Members have full system access
+# ============================================================================
+dn: cn=Admins,ou=Groups,dc=hcldx,dc=local
+objectClass: groupOfNames
+cn: Admins
+description: System Administrators - Full access to all features
+member: uid=admin,ou=Users,dc=hcldx,dc=local
+
+# ============================================================================
+# AUTHORS GROUP
+# Members can create and edit content
+# ============================================================================
+dn: cn=Authors,ou=Groups,dc=hcldx,dc=local
+objectClass: groupOfNames
+cn: Authors
+description: Content Authors - Create and edit content
+member: uid=author,ou=Users,dc=hcldx,dc=local
+member: uid=author2,ou=Users,dc=hcldx,dc=local
+
+# ============================================================================
+# REVIEWERS GROUP
+# Members can review, approve, and reject content
+# ============================================================================
+dn: cn=Reviewers,ou=Groups,dc=hcldx,dc=local
+objectClass: groupOfNames
+cn: Reviewers
+description: Content Reviewers - Review and approve content
+member: uid=reviewer,ou=Users,dc=hcldx,dc=local
+member: uid=reviewer2,ou=Users,dc=hcldx,dc=local
+
+# ============================================================================
+# PUBLISHERS GROUP
+# Members can publish approved content to HCL DX
+# ============================================================================
+dn: cn=Publishers,ou=Groups,dc=hcldx,dc=local
+objectClass: groupOfNames
+cn: Publishers
+description: Content Publishers - Publish to HCL DX
+member: uid=publisher,ou=Users,dc=hcldx,dc=local
+
+# ============================================================================
+# ALL USERS GROUP
+# Convenience group containing all users
+# ============================================================================
+dn: cn=AllUsers,ou=Groups,dc=hcldx,dc=local
+objectClass: groupOfNames
+cn: AllUsers
+description: All HCL DX Composer Users
+member: uid=admin,ou=Users,dc=hcldx,dc=local
+member: uid=author,ou=Users,dc=hcldx,dc=local
+member: uid=author2,ou=Users,dc=hcldx,dc=local
+member: uid=reviewer,ou=Users,dc=hcldx,dc=local
+member: uid=reviewer2,ou=Users,dc=hcldx,dc=local
+member: uid=publisher,ou=Users,dc=hcldx,dc=local

@@ -279,6 +279,8 @@ The `scripts/` folder contains helper scripts for setup and deployment:
 | Script | Description |
 |--------|-------------|
 | `setup.sh` | Initial setup - creates `.env` with secure defaults |
+| `ldap/scripts/init-ldap.sh` | Initialize Local OpenLDAP with users/groups |
+| `ldap/scripts/manage-ldap.sh` | Manage LDAP users and groups |
 | `deploy.sh` | Docker deployment with various options |
 | `dev.sh` | Local development mode |
 | `backup.sh` | Backup database and uploads |

@@ -222,41 +222,58 @@ description: Content Publishers
 member: uid=publisher,ou=Users,dc=hcldx,dc=local
 ```
 
-### Docker Compose Configuration
+### Starting Local LDAP
 
-Add this to your `docker-compose.yml`:
+```bash
+# Start OpenLDAP with the local-ldap profile
+docker-compose --profile local-ldap up -d openldap
 
-```yaml
-services:
-  openldap:
-    image: osixia/openldap:1.5.0
-    container_name: hcldx-openldap
-    environment:
-      - LDAP_ORGANISATION=${LDAP_ORGANISATION:-HCL DX Composer}
-      - LDAP_DOMAIN=${LDAP_DOMAIN:-hcldx.local}
-      - LDAP_ADMIN_PASSWORD=${LDAP_ADMIN_PASSWORD:-admin_password}
-      - LDAP_CONFIG_PASSWORD=${LDAP_CONFIG_PASSWORD:-config_password}
-      - LDAP_READONLY_USER=false
-      - LDAP_RFC2307BIS_SCHEMA=false
-      - LDAP_BACKEND=mdb
-      - LDAP_TLS=false
-    volumes:
-      - openldap_data:/var/lib/ldap
-      - openldap_config:/etc/ldap/slapd.d
-      - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
-    ports:
-      - "389:389"
-    networks:
-      - hcldx-network
-    healthcheck:
-      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=hcldx,dc=local"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+# Or start all services including OpenLDAP
+docker-compose --profile local-ldap up -d
+```
 
-volumes:
-  openldap_data:
-  openldap_config:
+### LDAP Management Scripts
+
+The `ldap/scripts/` directory contains utility scripts:
+
+| Script | Description |
+|--------|-------------|
+| `init-ldap.sh` | Initialize LDAP with bootstrap data |
+| `manage-ldap.sh` | Manage users and groups |
+
+#### Initialize LDAP (First Time Setup)
+
+```bash
+# After starting OpenLDAP, initialize with users and groups
+./ldap/scripts/init-ldap.sh
+```
+
+#### Manage Users and Groups
+
+```bash
+# List all users
+./ldap/scripts/manage-ldap.sh list-users
+
+# List all groups
+./ldap/scripts/manage-ldap.sh list-groups
+
+# Add a new user
+./ldap/scripts/manage-ldap.sh add-user john password123 John Doe john@example.com
+
+# Add user to a group
+./ldap/scripts/manage-ldap.sh add-to-group john Authors
+
+# Test authentication
+./ldap/scripts/manage-ldap.sh test-auth john password123
+
+# Change password
+./ldap/scripts/manage-ldap.sh change-password john newpassword
+
+# Remove from group
+./ldap/scripts/manage-ldap.sh remove-from-group john Authors
+
+# Delete user
+./ldap/scripts/manage-ldap.sh delete-user john
 ```
 
 ### Testing Local LDAP

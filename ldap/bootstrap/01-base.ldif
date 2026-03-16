@@ -1,0 +1,20 @@
+# HCL DX Composer - Local LDAP Bootstrap
+# Base organizational structure
+#
+# This file creates the base directory structure for the Local OpenLDAP
+
+# Organization Units
+dn: ou=Users,dc=hcldx,dc=local
+objectClass: organizationalUnit
+ou: Users
+description: HCL DX Composer Users
+
+dn: ou=Groups,dc=hcldx,dc=local
+objectClass: organizationalUnit
+ou: Groups
+description: HCL DX Composer Groups
+
+dn: ou=ServiceAccounts,dc=hcldx,dc=local
+objectClass: organizationalUnit
+ou: ServiceAccounts
+description: Service Accounts for API Integration

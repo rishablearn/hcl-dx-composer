@@ -1,6 +1,39 @@
 version: '3.8'
 
 services:
+  # OpenLDAP Service (Local LDAP Mode)
+  # Only started when LDAP_MODE=local
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: hcl-dx-openldap
+    restart: unless-stopped
+    environment:
+      LDAP_ORGANISATION: ${LDAP_ORGANISATION:-HCL DX Composer}
+      LDAP_DOMAIN: ${LDAP_DOMAIN:-hcldx.local}
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:-admin_password}
+      LDAP_CONFIG_PASSWORD: ${LDAP_CONFIG_PASSWORD:-config_password}
+      LDAP_READONLY_USER: "false"
+      LDAP_RFC2307BIS_SCHEMA: "false"
+      LDAP_BACKEND: mdb
+      LDAP_TLS: "false"
+      LDAP_TLS_VERIFY_CLIENT: never
+    volumes:
+      - openldap_data:/var/lib/ldap
+      - openldap_config:/etc/ldap/slapd.d
+      - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
+    ports:
+      - "${LDAP_PORT:-389}:389"
+    networks:
+      - hcl-dx-network
+    healthcheck:
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=hcldx,dc=local", "-D", "cn=admin,dc=hcldx,dc=local", "-w", "${LDAP_ADMIN_PASSWORD:-admin_password}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    profiles:
+      - local-ldap
+
   # PostgreSQL Database Service
   db:
     image: postgres:15-alpine
@@ -41,12 +74,13 @@ services:
       DB_USER: ${POSTGRES_USER:-hcldx}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-hcldx_secure_password}
       # LDAP Configuration
-      LDAP_URL: ${LDAP_URL}
-      LDAP_BASE_DN: ${LDAP_BASE_DN}
-      LDAP_BIND_DN: ${LDAP_BIND_DN}
-      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
-      LDAP_USER_SEARCH_BASE: ${LDAP_USER_SEARCH_BASE}
-      LDAP_GROUP_SEARCH_BASE: ${LDAP_GROUP_SEARCH_BASE}
+      LDAP_MODE: ${LDAP_MODE:-local}
+      LDAP_URL: ${LDAP_URL:-ldap://openldap:389}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=hcldx,dc=local}
+      LDAP_BIND_DN: ${LDAP_BIND_DN:-cn=admin,dc=hcldx,dc=local}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-admin_password}
+      LDAP_USER_SEARCH_BASE: ${LDAP_USER_SEARCH_BASE:-ou=Users,dc=hcldx,dc=local}
+      LDAP_GROUP_SEARCH_BASE: ${LDAP_GROUP_SEARCH_BASE:-ou=Groups,dc=hcldx,dc=local}
       # HCL DX Configuration
       HCL_DX_HOST: ${HCL_DX_HOST}
       HCL_DX_PORT: ${HCL_DX_PORT:-443}
@@ -107,4 +141,8 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  openldap_data:
+    driver: local
+  openldap_config:
     driver: local

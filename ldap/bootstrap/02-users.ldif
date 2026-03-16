@@ -1,0 +1,128 @@
+# HCL DX Composer - Local LDAP Users
+# Pre-configured workflow users
+#
+# Default password for all users: password
+# Password hash generated with: slappasswd -s password
+# Hash: {SSHA}encrypted_password (use plain text for osixia/openldap)
+
+# ============================================================================
+# ADMINISTRATOR USER
+# Full system access, user management, configuration
+# ============================================================================
+dn: uid=admin,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: admin
+sn: Administrator
+givenName: System
+cn: System Administrator
+displayName: System Administrator
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/admin
+loginShell: /bin/bash
+mail: admin@hcldx.local
+userPassword: password
+description: System Administrator - Full access to all features
+
+# ============================================================================
+# AUTHOR USER
+# Content creation, draft management, submit for review
+# ============================================================================
+dn: uid=author,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: author
+sn: Author
+givenName: Content
+cn: Content Author
+displayName: Content Author
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/author
+loginShell: /bin/bash
+mail: author@hcldx.local
+userPassword: password
+description: Content Author - Create and edit content
+
+# ============================================================================
+# REVIEWER USER
+# Review content, approve or reject submissions
+# ============================================================================
+dn: uid=reviewer,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: reviewer
+sn: Reviewer
+givenName: Content
+cn: Content Reviewer
+displayName: Content Reviewer
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/reviewer
+loginShell: /bin/bash
+mail: reviewer@hcldx.local
+userPassword: password
+description: Content Reviewer - Review and approve content
+
+# ============================================================================
+# PUBLISHER USER
+# Publish approved content to HCL DX
+# ============================================================================
+dn: uid=publisher,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: publisher
+sn: Publisher
+givenName: Content
+cn: Content Publisher
+displayName: Content Publisher
+uidNumber: 1003
+gidNumber: 1003
+homeDirectory: /home/publisher
+loginShell: /bin/bash
+mail: publisher@hcldx.local
+userPassword: password
+description: Content Publisher - Publish to HCL DX
+
+# ============================================================================
+# ADDITIONAL DEMO USERS
+# For testing multi-user workflows
+# ============================================================================
+dn: uid=author2,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: author2
+sn: Author2
+givenName: Secondary
+cn: Secondary Author
+displayName: Secondary Author
+uidNumber: 1004
+gidNumber: 1001
+homeDirectory: /home/author2
+loginShell: /bin/bash
+mail: author2@hcldx.local
+userPassword: password
+description: Secondary Author for testing
+
+dn: uid=reviewer2,ou=Users,dc=hcldx,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: reviewer2
+sn: Reviewer2
+givenName: Secondary
+cn: Secondary Reviewer
+displayName: Secondary Reviewer
+uidNumber: 1005
+gidNumber: 1002
+homeDirectory: /home/reviewer2
+loginShell: /bin/bash
+mail: reviewer2@hcldx.local
+userPassword: password
+description: Secondary Reviewer for testing
