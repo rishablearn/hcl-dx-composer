@@ -4,38 +4,33 @@ services:
   # OpenLDAP Service (Local LDAP Mode)
   # Only started when LDAP_MODE=local
   openldap:
-    image: osixia/openldap:1.5.0
+    image: bitnami/openldap:2.6
     container_name: hcl-dx-openldap
     restart: unless-stopped
     environment:
-      LDAP_ORGANISATION: ${LDAP_ORGANISATION:-HCL DX Composer}
-      LDAP_DOMAIN: ${LDAP_DOMAIN:-hcldx.local}
+      LDAP_ROOT: dc=hcldx,dc=local
+      LDAP_ADMIN_USERNAME: admin
       LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:-admin_password}
-      LDAP_CONFIG_PASSWORD: ${LDAP_CONFIG_PASSWORD:-config_password}
-      LDAP_READONLY_USER: "false"
-      LDAP_RFC2307BIS_SCHEMA: "false"
-      LDAP_BACKEND: mdb
-      LDAP_TLS: "false"
-      LDAP_TLS_VERIFY_CLIENT: never
-      LDAP_REPLICATION: "false"
-      KEEP_EXISTING_CONFIG: "false"
-      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+      LDAP_CONFIG_ADMIN_ENABLED: "yes"
+      LDAP_CONFIG_ADMIN_USERNAME: admin
+      LDAP_CONFIG_ADMIN_PASSWORD: ${LDAP_CONFIG_PASSWORD:-config_password}
+      LDAP_SKIP_DEFAULT_TREE: "no"
+      LDAP_CUSTOM_LDIF_DIR: /ldifs
+      LDAP_ADD_SCHEMAS: "yes"
+      LDAP_EXTRA_SCHEMAS: cosine,inetorgperson,nis
     volumes:
-      - openldap_data:/var/lib/ldap
-      - openldap_config:/etc/ldap/slapd.d
-      - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
-      - ./ldap/config/replication:/container/service/slapd/assets/config/replication
-      - ./ldap/config/admin:/container/service/slapd/assets/config/admin
+      - openldap_data:/bitnami/openldap
+      - ./ldap/bootstrap:/ldifs
     ports:
-      - "${LDAP_PORT:-389}:389"
+      - "${LDAP_PORT:-389}:1389"
     networks:
       - hcl-dx-network
     healthcheck:
-      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=hcldx,dc=local", "-D", "cn=admin,dc=hcldx,dc=local", "-w", "${LDAP_ADMIN_PASSWORD:-admin_password}"]
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost:1389", "-b", "dc=hcldx,dc=local", "-D", "cn=admin,dc=hcldx,dc=local", "-w", "${LDAP_ADMIN_PASSWORD:-admin_password}"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     profiles:
       - local-ldap
 
@@ -82,7 +77,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-hcldx_secure_password}
       # LDAP Configuration
       LDAP_MODE: ${LDAP_MODE:-local}
-      LDAP_URL: ${LDAP_URL:-ldap://openldap:389}
+      LDAP_URL: ${LDAP_URL:-ldap://openldap:1389}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=hcldx,dc=local}
       LDAP_BIND_DN: ${LDAP_BIND_DN:-cn=admin,dc=hcldx,dc=local}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-admin_password}
@@ -159,6 +154,4 @@ volumes:
   postgres_data:
     driver: local
   openldap_data:
-    driver: local
-  openldap_config:
     driver: local
