@@ -1457,6 +1457,28 @@ echo -e "     ${BLUE}./scripts/health-check.sh${NC}       Check service status"
 echo -e "     ${BLUE}./scripts/backup.sh${NC}             Backup database & files"
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${GREEN}Access Your Application${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+if [ "$SSL_ENABLED_CHECK" = "true" ]; then
+    echo -e "  ${YELLOW}HTTPS (SSL Enabled):${NC}"
+    echo -e "     ${GREEN}https://${APP_HOSTNAME_CHECK}${NC}  (port 443)"
+    echo ""
+    echo -e "  ${YELLOW}Note:${NC} HTTP on port 3000 redirects to HTTPS"
+    echo -e "     http://${APP_HOSTNAME_CHECK}:3000 -> https://${APP_HOSTNAME_CHECK}"
+else
+    echo -e "  ${YELLOW}HTTP:${NC}"
+    echo -e "     ${GREEN}http://${APP_HOSTNAME_CHECK}:3000${NC}"
+fi
+echo ""
+echo -e "  ${YELLOW}API Endpoint:${NC}"
+if [ "$SSL_ENABLED_CHECK" = "true" ]; then
+    echo -e "     ${GREEN}https://${APP_HOSTNAME_CHECK}/api${NC}"
+else
+    echo -e "     ${GREEN}http://${APP_HOSTNAME_CHECK}:3000/api${NC}"
+fi
+echo ""
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "  Documentation:"
 echo -e "     ${BLUE}docs/HCL-DX-INTEGRATION.md${NC}      HCL DX API Integration"
 echo -e "     ${BLUE}docs/LDAP-CONFIGURATION.md${NC}      LDAP Setup Guide"
