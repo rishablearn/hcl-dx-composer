@@ -4,29 +4,27 @@ services:
   # OpenLDAP Service (Local LDAP Mode)
   # Only started when LDAP_MODE=local
   openldap:
-    image: bitnami/openldap:latest
+    image: osixia/openldap:1.5.0
     container_name: hcl-dx-openldap
     restart: unless-stopped
+    command: --copy-service
     environment:
-      LDAP_ROOT: dc=hcldx,dc=local
-      LDAP_ADMIN_USERNAME: admin
+      LDAP_ORGANISATION: ${LDAP_ORGANISATION:-HCL DX Composer}
+      LDAP_DOMAIN: ${LDAP_DOMAIN:-hcldx.local}
       LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:-admin_password}
-      LDAP_CONFIG_ADMIN_ENABLED: "yes"
-      LDAP_CONFIG_ADMIN_USERNAME: admin
-      LDAP_CONFIG_ADMIN_PASSWORD: ${LDAP_CONFIG_PASSWORD:-config_password}
-      LDAP_SKIP_DEFAULT_TREE: "no"
-      LDAP_CUSTOM_LDIF_DIR: /ldifs
-      LDAP_ADD_SCHEMAS: "yes"
-      LDAP_EXTRA_SCHEMAS: cosine,inetorgperson,nis
+      LDAP_TLS: "false"
+      LDAP_TLS_VERIFY_CLIENT: never
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"
     volumes:
-      - openldap_data:/bitnami/openldap
-      - ./ldap/bootstrap:/ldifs
+      - openldap_data:/var/lib/ldap
+      - openldap_config:/etc/ldap/slapd.d
+      - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
     ports:
-      - "${LDAP_PORT:-389}:1389"
+      - "${LDAP_PORT:-389}:389"
     networks:
       - hcl-dx-network
     healthcheck:
-      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost:1389", "-b", "dc=hcldx,dc=local", "-D", "cn=admin,dc=hcldx,dc=local", "-w", "${LDAP_ADMIN_PASSWORD:-admin_password}"]
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=hcldx,dc=local", "-D", "cn=admin,dc=hcldx,dc=local", "-w", "${LDAP_ADMIN_PASSWORD:-admin_password}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -77,7 +75,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-hcldx_secure_password}
       # LDAP Configuration
       LDAP_MODE: ${LDAP_MODE:-local}
-      LDAP_URL: ${LDAP_URL:-ldap://openldap:1389}
+      LDAP_URL: ${LDAP_URL:-ldap://openldap:389}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=hcldx,dc=local}
       LDAP_BIND_DN: ${LDAP_BIND_DN:-cn=admin,dc=hcldx,dc=local}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-admin_password}
@@ -154,4 +152,6 @@ volumes:
   postgres_data:
     driver: local
   openldap_data:
+    driver: local
+  openldap_config:
     driver: local

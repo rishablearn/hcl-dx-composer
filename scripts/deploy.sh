@@ -340,7 +340,7 @@ case $ACTION in
                 echo -e "${CYAN}Waiting for OpenLDAP to be ready...${NC}"
                 LDAP_ADMIN_PASSWORD=$(grep "^LDAP_ADMIN_PASSWORD=" .env 2>/dev/null | cut -d'=' -f2 || echo "admin_password")
                 for i in {1..30}; do
-                    if $SUDO_CMD docker exec hcl-dx-openldap ldapsearch -x -H ldap://localhost:1389 -b "dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" > /dev/null 2>&1; then
+                    if $SUDO_CMD docker exec hcl-dx-openldap ldapsearch -x -H ldap://localhost -b "dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" > /dev/null 2>&1; then
                         print_success "OpenLDAP is ready"
                         break
                     fi
