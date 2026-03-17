@@ -349,26 +349,9 @@ case $ACTION in
                 done
                 echo ""
                 
-                # Check if users exist, if not load them
-                echo -e "${CYAN}Checking LDAP users...${NC}"
-                USER_COUNT=$($SUDO_CMD docker exec hcl-dx-openldap ldapsearch -x -H ldap://localhost -b "ou=Users,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(uid=*)" 2>/dev/null | grep -c "^dn:" || echo "0")
-                
-                if [ "$USER_COUNT" -eq "0" ]; then
-                    echo -e "${YELLOW}No users found. Loading LDAP bootstrap data...${NC}"
-                    
-                    # Load base structure
-                    $SUDO_CMD docker exec hcl-dx-openldap ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -f /ldif-custom/01-base.ldif -c 2>/dev/null || true
-                    
-                    # Load users
-                    $SUDO_CMD docker exec hcl-dx-openldap ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -f /ldif-custom/02-users.ldif -c 2>/dev/null || true
-                    
-                    # Load groups
-                    $SUDO_CMD docker exec hcl-dx-openldap ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -f /ldif-custom/03-groups.ldif -c 2>/dev/null || true
-                    
-                    print_success "LDAP users loaded"
-                else
-                    print_success "LDAP users already exist (${USER_COUNT} found)"
-                fi
+                # Populate LDAP users using dedicated script
+                echo -e "${CYAN}Populating LDAP users...${NC}"
+                ./scripts/populate-ldap.sh || print_warning "LDAP population had issues - check logs"
             fi
             
             # Wait for backend to be healthy
