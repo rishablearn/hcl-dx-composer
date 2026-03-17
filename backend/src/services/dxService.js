@@ -61,9 +61,15 @@ class DxService {
 
   /**
    * Check if HCL DX is properly configured
+   * Also detects placeholder values from .env.example to avoid long connection timeouts
    */
   isConfigured() {
-    return !!(this.host && this.username && this.password);
+    if (!this.host || !this.username || !this.password) return false;
+    // Detect common placeholder values that would cause connection hangs
+    const placeholders = ['your-dx-server', 'your-hostname', 'localhost.placeholder', 'CHANGE_ME', 'example.com'];
+    if (placeholders.some(p => this.host.includes(p))) return false;
+    if (this.password === 'CHANGE_ME_dx_service_password') return false;
+    return true;
   }
 
   /**

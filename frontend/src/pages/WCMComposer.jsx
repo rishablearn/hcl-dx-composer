@@ -267,19 +267,53 @@ export default function WCMComposer() {
     }
   };
 
+  const getMockLibraries = () => [
+    { id: 'lib-1', title: { value: 'Web Content' }, name: 'Web Content' },
+    { id: 'lib-2', title: { value: 'Marketing Content' }, name: 'Marketing Content' },
+  ];
+
+  const getMockTemplatesData = () => ({
+    authoringTemplates: [
+      { id: 'at-1', title: { value: 'Article' }, elements: [
+        { name: 'headline', type: 'text', label: 'Headline', required: true },
+        { name: 'summary', type: 'textarea', label: 'Summary' },
+        { name: 'body', type: 'rich_text', label: 'Body Content', required: true },
+        { name: 'author', type: 'text', label: 'Author Name' },
+        { name: 'publishDate', type: 'date', label: 'Publish Date' },
+        { name: 'featuredImage', type: 'image', label: 'Featured Image' },
+      ]},
+      { id: 'at-2', title: { value: 'News Item' }, elements: [
+        { name: 'title', type: 'text', label: 'Title', required: true },
+        { name: 'content', type: 'rich_text', label: 'Content', required: true },
+        { name: 'category', type: 'select', label: 'Category', options: ['Company News', 'Industry', 'Events'] },
+      ]},
+    ],
+    workflows: [
+      { id: 'wf-1', title: { value: 'Standard Approval' }, stages: ['Draft', 'Review', 'Approved', 'Published'] },
+    ],
+    presentationTemplates: [
+      { id: 'pt-1', title: { value: 'Article Layout' } },
+      { id: 'pt-2', title: { value: 'News Layout' } },
+    ],
+  });
+
+  const apiWithTimeout = (promise, ms = 10000) => {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('API timeout')), ms)
+    );
+    return Promise.race([promise, timeout]);
+  };
+
   const loadLibraries = async () => {
     try {
-      const response = await wcmApi.getLibraries();
+      const response = await apiWithTimeout(wcmApi.getLibraries());
       // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
       const entries = response.data?.items || response.data?.feed?.entry || [];
-      setLibraries(entries);
+      setLibraries(entries.length > 0 ? entries : getMockLibraries());
     } catch (error) {
       console.error('Failed to load libraries:', error);
       // Use mock data for demo
-      setLibraries([
-        { id: 'lib-1', title: { value: 'Web Content' } },
-        { id: 'lib-2', title: { value: 'Marketing Content' } },
-      ]);
+      setLibraries(getMockLibraries());
     } finally {
       setLoading(false);
     }
@@ -296,41 +330,30 @@ export default function WCMComposer() {
     setLoading(true);
     
     try {
-      const [atResponse, wfResponse, ptResponse] = await Promise.all([
-        wcmApi.getAuthoringTemplates(libId),
-        wcmApi.getWorkflows(libId),
-        wcmApi.getPresentationTemplates(libId),
-      ]);
+      const [atResponse, wfResponse, ptResponse] = await apiWithTimeout(
+        Promise.all([
+          wcmApi.getAuthoringTemplates(libId),
+          wcmApi.getWorkflows(libId),
+          wcmApi.getPresentationTemplates(libId),
+        ])
+      );
       
       // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
-      setAuthoringTemplates(atResponse.data?.items || atResponse.data?.feed?.entry || []);
-      setWorkflows(wfResponse.data?.items || wfResponse.data?.feed?.entry || []);
-      setPresentationTemplates(ptResponse.data?.items || ptResponse.data?.feed?.entry || []);
+      const at = atResponse.data?.items || atResponse.data?.feed?.entry || [];
+      const wf = wfResponse.data?.items || wfResponse.data?.feed?.entry || [];
+      const pt = ptResponse.data?.items || ptResponse.data?.feed?.entry || [];
+
+      const mock = getMockTemplatesData();
+      setAuthoringTemplates(at.length > 0 ? at : mock.authoringTemplates);
+      setWorkflows(wf.length > 0 ? wf : mock.workflows);
+      setPresentationTemplates(pt.length > 0 ? pt : mock.presentationTemplates);
     } catch (error) {
       console.error('Failed to load templates:', error);
       // Mock data for demo
-      setAuthoringTemplates([
-        { id: 'at-1', title: { value: 'Article' }, elements: [
-          { name: 'headline', type: 'text', label: 'Headline', required: true },
-          { name: 'summary', type: 'textarea', label: 'Summary' },
-          { name: 'body', type: 'rich_text', label: 'Body Content', required: true },
-          { name: 'author', type: 'text', label: 'Author Name' },
-          { name: 'publishDate', type: 'date', label: 'Publish Date' },
-          { name: 'featuredImage', type: 'image', label: 'Featured Image' },
-        ]},
-        { id: 'at-2', title: { value: 'News Item' }, elements: [
-          { name: 'title', type: 'text', label: 'Title', required: true },
-          { name: 'content', type: 'rich_text', label: 'Content', required: true },
-          { name: 'category', type: 'select', label: 'Category', options: ['Company News', 'Industry', 'Events'] },
-        ]},
-      ]);
-      setWorkflows([
-        { id: 'wf-1', title: { value: 'Standard Approval' }, stages: ['Draft', 'Review', 'Approved', 'Published'] },
-      ]);
-      setPresentationTemplates([
-        { id: 'pt-1', title: { value: 'Article Layout' } },
-        { id: 'pt-2', title: { value: 'News Layout' } },
-      ]);
+      const mock = getMockTemplatesData();
+      setAuthoringTemplates(mock.authoringTemplates);
+      setWorkflows(mock.workflows);
+      setPresentationTemplates(mock.presentationTemplates);
     } finally {
       setLoading(false);
       setStep(2);
@@ -344,7 +367,7 @@ export default function WCMComposer() {
     setLoading(true);
     
     try {
-      const response = await wcmApi.getAuthoringTemplateDetails(tmplId);
+      const response = await apiWithTimeout(wcmApi.getAuthoringTemplateDetails(tmplId));
       setTemplateDetails(response.data);
     } catch (error) {
       // Use mock elements
