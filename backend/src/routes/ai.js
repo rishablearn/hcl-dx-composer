@@ -195,7 +195,7 @@ router.post('/generate-and-stage', authenticateToken, requireAuthor, async (req,
           dxAssetId: dxUploadResult?.asset?.id || null,
           dxCollectionId: dxUploadResult?.collection?.id || null
         }),
-        JSON.stringify([...tags, 'ai-generated', options.provider]),
+        [...tags, 'ai-generated', options.provider],
         req.user.id,
         dxUploadResult?.asset?.id || null,
         dxUploadResult?.collection?.id || null
