@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 const dxService = require('../services/dxService');
+const dxServiceV2 = require('../services/dxServiceV2');
 const { authenticateToken, requireAuthor, requireApprover } = require('../middleware/auth');
 const logger = require('../config/logger');
 
@@ -150,13 +151,22 @@ function getDemoWorkflows(libraryId) {
  */
 router.get('/libraries', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
-      logger.info('HCL DX not configured - returning demo WCM libraries');
+    // Check if DX is configured (both v1 and v2 services)
+    const v2Configured = dxServiceV2.isConfigured();
+    const v1Configured = dxService.isConfigured();
+    
+    if (!v2Configured && !v1Configured) {
+      logger.info('HCL DX not configured (both v1 and v2) - returning demo WCM libraries');
       return res.json(getDemoLibraries());
     }
 
     const authToken = req.user?.ltpaToken || null;
-    const libraries = await dxService.getLibraries(authToken);
+    
+    // Use dxServiceV2 which tries: WCM API v2 → Ring API → Legacy wcmrest
+    logger.info(`[WCM Route] Fetching libraries from HCL DX (v2Configured=${v2Configured}, v1Configured=${v1Configured})`);
+    const libraries = await dxServiceV2.getLibraries(authToken);
+    
+    logger.info(`[WCM Route] Returning ${libraries.items?.length || 0} libraries (source: ${libraries.source || 'unknown'})`);
     res.json(libraries);
   } catch (error) {
     logger.error('Error fetching WCM libraries:', error.message);
@@ -173,11 +183,11 @@ router.get('/libraries', authenticateToken, async (req, res) => {
  */
 router.get('/libraries/:id/authoring-templates', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
+    if (!dxServiceV2.isConfigured() && !dxService.isConfigured()) {
       return res.json(getDemoAuthoringTemplates(req.params.id));
     }
     const authToken = req.user?.ltpaToken || null;
-    const templates = await dxService.getAuthoringTemplates(req.params.id, authToken);
+    const templates = await dxServiceV2.getAuthoringTemplates(req.params.id, authToken);
     res.json(templates);
   } catch (error) {
     logger.error('Error fetching authoring templates:', error.message);
@@ -191,8 +201,7 @@ router.get('/libraries/:id/authoring-templates', authenticateToken, async (req, 
  */
 router.get('/authoring-templates/:id', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
-      // Return a basic template detail structure
+    if (!dxServiceV2.isConfigured() && !dxService.isConfigured()) {
       return res.json({
         id: req.params.id,
         title: { lang: 'en', value: 'Content Template' },
@@ -205,7 +214,7 @@ router.get('/authoring-templates/:id', authenticateToken, async (req, res) => {
       });
     }
     const authToken = req.user?.ltpaToken || null;
-    const template = await dxService.getAuthoringTemplateDetails(req.params.id, authToken);
+    const template = await dxServiceV2.getAuthoringTemplateDetails(req.params.id, authToken);
     res.json(template);
   } catch (error) {
     logger.error('Error fetching authoring template details:', error.message);
@@ -219,12 +228,18 @@ router.get('/authoring-templates/:id', authenticateToken, async (req, res) => {
  */
 router.get('/libraries/:id/presentation-templates', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
+    if (!dxServiceV2.isConfigured() && !dxService.isConfigured()) {
       return res.json(getDemoPresentationTemplates(req.params.id));
     }
     const authToken = req.user?.ltpaToken || null;
-    const templates = await dxService.getPresentationTemplates(req.params.id, authToken);
-    res.json(templates);
+    // Try v2 first, fall back to v1
+    try {
+      const templates = await dxServiceV2.getAuthoringTemplates(req.params.id, authToken);
+      res.json(templates);
+    } catch {
+      const templates = await dxService.getPresentationTemplates(req.params.id, authToken);
+      res.json(templates);
+    }
   } catch (error) {
     logger.error('Error fetching presentation templates:', error.message);
     res.json(getDemoPresentationTemplates(req.params.id));
@@ -237,11 +252,11 @@ router.get('/libraries/:id/presentation-templates', authenticateToken, async (re
  */
 router.get('/libraries/:id/workflows', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
+    if (!dxServiceV2.isConfigured() && !dxService.isConfigured()) {
       return res.json(getDemoWorkflows(req.params.id));
     }
     const authToken = req.user?.ltpaToken || null;
-    const workflows = await dxService.getWorkflows(req.params.id, authToken);
+    const workflows = await dxServiceV2.getWorkflows(req.params.id, authToken);
     res.json(workflows);
   } catch (error) {
     logger.error('Error fetching workflows:', error.message);
@@ -255,7 +270,7 @@ router.get('/libraries/:id/workflows', authenticateToken, async (req, res) => {
  */
 router.get('/workflows/:id', authenticateToken, async (req, res) => {
   try {
-    if (!dxService.isConfigured()) {
+    if (!dxServiceV2.isConfigured() && !dxService.isConfigured()) {
       return res.json({
         id: req.params.id,
         title: { lang: 'en', value: 'Workflow' },
@@ -269,7 +284,7 @@ router.get('/workflows/:id', authenticateToken, async (req, res) => {
       });
     }
     const authToken = req.user?.ltpaToken || null;
-    const workflow = await dxService.getWorkflowDetails(req.params.id, authToken);
+    const workflow = await dxServiceV2.getWorkflowDetails(req.params.id, authToken);
     res.json(workflow);
   } catch (error) {
     logger.error('Error fetching workflow details:', error);

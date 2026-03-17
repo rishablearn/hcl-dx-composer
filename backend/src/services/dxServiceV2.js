@@ -11,9 +11,13 @@
  */
 
 const axios = require('axios');
+const https = require('https');
 const FormData = require('form-data');
 const fs = require('fs');
 const logger = require('../config/logger');
+
+// Allow self-signed certificates (common in enterprise DX deployments)
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 class DxServiceV2 {
   constructor() {
@@ -38,6 +42,35 @@ class DxServiceV2 {
     // Cache for session token
     this._sessionToken = null;
     this._tokenExpiry = null;
+
+    // Log configuration on startup
+    this._logConfig();
+  }
+
+  _logConfig() {
+    logger.info('=== DxServiceV2 Configuration ===');
+    logger.info(`Host: ${this.host || 'NOT SET'}`);
+    logger.info(`Port: ${this.port}`);
+    logger.info(`Protocol: ${this.protocol}`);
+    logger.info(`Username: ${this.username || 'NOT SET'}`);
+    logger.info(`Password: ${this.password ? '***SET***' : 'NOT SET'}`);
+    logger.info(`WCM API Base: ${this.wcmApiBase}`);
+    logger.info(`Ring API Base: ${this.ringApiBase}`);
+    logger.info(`Legacy WCM Base: ${this.wcmRestBase}`);
+    logger.info(`Configured: ${this.isConfigured()}`);
+    logger.info('=================================');
+  }
+
+  /**
+   * Check if HCL DX is properly configured with real (non-placeholder) values.
+   * Returns false only if env vars are missing or contain obvious placeholder text.
+   */
+  isConfigured() {
+    if (!this.host || !this.username || !this.password) return false;
+    const placeholders = ['your-dx-server', 'your-hostname', 'CHANGE_ME', 'example.com'];
+    if (placeholders.some(p => this.host.includes(p))) return false;
+    if (this.password === 'CHANGE_ME_dx_service_password') return false;
+    return true;
   }
 
   /**
@@ -79,6 +112,7 @@ class DxServiceV2 {
       baseURL: this.getBaseUrl(),
       headers,
       timeout: options.timeout || 30000,
+      httpsAgent: httpsAgent,
       validateStatus: (status) => status < 500
     });
   }
@@ -178,38 +212,64 @@ class DxServiceV2 {
   // ===========================================================================
 
   /**
-   * Get WCM libraries via Ring API
-   * GET /dx/api/core/v1/{access_type}/webcontent/libraries
+   * Get WCM libraries - tries multiple API strategies in order:
+   * 1. WCM API v2: GET /dx/api/wcm/v2/libraries (per official docs)
+   * 2. Ring API: GET /dx/api/core/v1/{access_type}/webcontent/libraries
+   * 3. Legacy: GET /wps/mycontenthandler/wcmrest/Library
+   * All responses normalized to: { items: [{id, title: {lang, value}, name, type, ...}], total }
    */
   async getLibraries(authToken = null, options = {}) {
+    // Strategy 1: WCM API v2 direct endpoint
     try {
-      const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      logger.info(`[WCM] Trying WCM API v2: GET ${this.wcmApiBase}/libraries`);
       const client = this.createClient(authToken);
-      
       const params = new URLSearchParams();
       if (options.limit) params.append('limit', options.limit);
       if (options.page) params.append('page', options.page);
-      
+
       const response = await client.get(
-        `${this.ringApiBase}/${accessType}/webcontent/libraries?${params}`
+        `${this.wcmApiBase}/libraries?${params}`
       );
 
-      if (response.status !== 200) {
-        throw new Error(`Failed to get libraries: ${response.status}`);
+      if (response.status === 200) {
+        const items = response.data?.items || response.data?.contents || [];
+        logger.info(`[WCM] WCM API v2 returned ${items.length} libraries`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'wcm-api-v2' };
+        }
       }
-
-      // Transform response to consistent format
-      return {
-        items: response.data.contents || [],
-        total: response.data.total || 0,
-        page: response.data.page || 1,
-        limit: response.data.limit || 100
-      };
+      logger.warn(`[WCM] WCM API v2 returned status ${response.status}, trying Ring API...`);
     } catch (error) {
-      logger.error('Error fetching WCM libraries via Ring API:', error.message);
-      // Fallback to legacy API
-      return this.getLibrariesLegacy(authToken);
+      logger.warn(`[WCM] WCM API v2 failed: ${error.message}, trying Ring API...`);
     }
+
+    // Strategy 2: Ring API
+    try {
+      const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      const ringPath = `${this.ringApiBase}/${accessType}/webcontent/libraries`;
+      logger.info(`[WCM] Trying Ring API: GET ${ringPath}`);
+      const client = this.createClient(authToken);
+
+      const params = new URLSearchParams();
+      if (options.limit) params.append('limit', options.limit);
+      if (options.page) params.append('page', options.page);
+
+      const response = await client.get(`${ringPath}?${params}`);
+
+      if (response.status === 200) {
+        const items = response.data?.contents || response.data?.items || [];
+        logger.info(`[WCM] Ring API returned ${items.length} libraries`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'ring-api' };
+        }
+      }
+      logger.warn(`[WCM] Ring API returned status ${response.status}, trying legacy...`);
+    } catch (error) {
+      logger.warn(`[WCM] Ring API failed: ${error.message}, trying legacy...`);
+    }
+
+    // Strategy 3: Legacy WCM REST API
+    return this.getLibrariesLegacy(authToken);
   }
 
   /**
@@ -808,14 +868,35 @@ class DxServiceV2 {
 
   async getLibrariesLegacy(authToken) {
     try {
+      const legacyUrl = `${this.wcmRestBase}/Library`;
+      logger.info(`[WCM] Trying Legacy API: GET ${legacyUrl}`);
       const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmRestBase}/Library`);
+      const response = await client.get(legacyUrl);
       
       if (response.status !== 200) {
-        throw new Error(`Failed to get libraries: ${response.status}`);
+        throw new Error(`Failed to get libraries via legacy API: ${response.status}`);
       }
-      
-      return { items: response.data?.feed?.entry || [], total: 0 };
+
+      // Legacy Atom feed returns: { feed: { entry: [{id, title, ...}] } }
+      // Normalize entries to WCM API v2 format: { id, title: {lang, value}, name, type }
+      const rawEntries = response.data?.feed?.entry || [];
+      logger.info(`[WCM] Legacy API returned ${rawEntries.length} libraries`);
+
+      const items = rawEntries.map(entry => {
+        const rawId = entry.id || '';
+        const cleanId = typeof rawId === 'string' ? rawId.replace(/^wcmrest:/, '') : rawId;
+        const titleValue = typeof entry.title === 'string' ? entry.title : (entry.title?.value || entry.name || '');
+        return {
+          id: cleanId,
+          title: { lang: 'en', value: titleValue },
+          displayTitle: titleValue,
+          name: entry.name || titleValue,
+          type: 'Library',
+          _source: 'legacy-wcmrest'
+        };
+      });
+
+      return { items, total: items.length, source: 'legacy-wcmrest' };
     } catch (error) {
       logger.error('Error fetching WCM libraries (legacy):', error.message);
       throw error;
