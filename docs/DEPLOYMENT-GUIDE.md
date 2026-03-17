@@ -80,9 +80,10 @@ Before starting, gather the following based on your deployment type:
 - [ ] Network access to ports 3000, 3001, 5432, 443 (for SSL)
 
 #### For HCL DX Integration
-- [ ] HCL DX server hostname
-- [ ] HCL DX service account credentials
+- [ ] HCL DX server hostname and port
+- [ ] HCL DX service account credentials (username/password for LtpaToken2 login)
 - [ ] WCM Library name
+- [ ] WCM REST API path (default: `/wps/mycontenthandler/wcmrest`)
 - [ ] CORS enabled for your domain on HCL DX
 
 #### For Common LDAP (Enterprise)
@@ -304,9 +305,11 @@ The setup script will guide you through:
    - Common: Enter your enterprise LDAP details
 
 3. **HCL DX Configuration**
-   - Server hostname and credentials
+   - Server hostname, port, and protocol
+   - Service account credentials (used for auto LtpaToken2 login)
+   - WCM API path (path or full URL; default: `/wps/mycontenthandler/wcmrest`)
    - WCM Library name
-   - DAM API endpoint
+   - DAM API is auto-configured from host settings
 
 4. **AI Providers (Optional)**
    - Select provider(s)
@@ -478,6 +481,37 @@ grep HCL_DX .env
 
 # Check network connectivity
 curl -k https://your-dx-server/wps/portal
+
+# Check backend startup log for resolved URLs
+docker-compose logs backend | grep 'HCL DX Service Configuration' -A 10
+
+# Verify LtpaToken2 authentication is working
+docker-compose logs backend | grep -i 'ltpa'
+```
+
+#### 6. WCM Libraries Not Loading
+
+```bash
+# Check the WCM URL being used
+docker-compose logs backend | grep 'WCM API'
+
+# Common causes:
+# - HCL_DX_WCM_BASE_URL set to full URL (now supported, but verify it's correct)
+# - Incorrect WCM path (try /wps/mycontenthandler/wcmrest)
+# - 401 Unauthorized (check HCL_DX_USERNAME/HCL_DX_PASSWORD)
+```
+
+#### 7. DAM Upload Failing with 401
+
+```bash
+# DAM API requires LtpaToken2 cookie authentication
+# Verify the backend can obtain an LTPA token:
+docker-compose logs backend | grep -i 'LtpaToken2'
+
+# If "Could not obtain LtpaToken2" appears, check:
+# - HCL_DX_USERNAME and HCL_DX_PASSWORD are correct
+# - The /wps/j_security_check endpoint is accessible
+# - Self-signed certs are handled (backend uses rejectUnauthorized: false)
 ```
 
 ### Reset Everything

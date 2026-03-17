@@ -14,7 +14,7 @@ This application works entirely through HCL DX REST APIs:
 | **Asset Management** | DAM API | Upload images, videos, documents |
 | **Publishing** | WCM/DAM API | Publish to HCL DX Portal |
 | **Workflows** | WCM REST API | Submit, approve, reject content |
-| **Authentication** | Basic Auth | Service account username/password |
+| **Authentication** | LtpaToken2 + Basic Auth | Auto-login via `j_security_check`, cached LTPA token |
 | **User SSO** | LDAP/LTPA2 | Enterprise Single Sign-On |
 
 **No server access needed** - just service account credentials from your HCL DX administrator.
@@ -226,27 +226,40 @@ HCL_DX_HOST=dx.company.com
 HCL_DX_PORT=443
 HCL_DX_PROTOCOL=https
 
-# Service Account (Basic Authentication)
+# Service Account (used for LtpaToken2 login and Basic Auth fallback)
 HCL_DX_USERNAME=wcmservice
 HCL_DX_PASSWORD=your_password
 
-# Auto-generated from host (or set manually)
-HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
-HCL_DX_DAM_BASE_URL=https://dx.company.com/dx/api/dam/v1
+# WCM API URL - path only (recommended) or full URL
+# Path only:  /wps/mycontenthandler/wcmrest
+# Full URL:   https://dx.company.com/wps/mycontenthandler/wcmrest
+HCL_DX_WCM_BASE_URL=/wps/mycontenthandler/wcmrest
 
 # Target WCM Library
 HCL_DX_WCM_LIBRARY=Web Content
 ```
 
+> **Important:** `HCL_DX_WCM_BASE_URL` can be either a path (`/wps/mycontenthandler/wcmrest`) or a full URL. If a path is provided, it is combined with `HCL_DX_HOST`/`HCL_DX_PORT`/`HCL_DX_PROTOCOL`. The DAM API path (`/dx/api/dam/v1`) is auto-configured from the host settings.
+
+### Authentication Flow
+
+The backend authenticates to HCL DX using **LtpaToken2** cookies:
+
+1. On first API call, the backend logs in via `POST /wps/j_security_check` (form-based auth)
+2. Extracts the `LtpaToken2` cookie from the response
+3. Caches the token for 1 hour (tokens typically valid for 2 hours)
+4. All subsequent DAM and WCM API calls include the `Cookie: LtpaToken2=...` header
+5. Falls back to Basic Auth if LTPA token cannot be obtained
+
 ### Test API Connectivity
 
 ```bash
 # Test WCM API using Basic Auth
-curl -u "wcmservice:password" \
+curl -k -u "wcmservice:password" \
      https://dx.company.com/wps/mycontenthandler/wcmrest/Library
 
 # Test DAM API  
-curl -u "wcmservice:password" \
+curl -k -u "wcmservice:password" \
      https://dx.company.com/dx/api/dam/v1/collections
 ```
 
@@ -539,6 +552,29 @@ docker-compose exec db psql -U hcldx -d hcl_dx_staging
 ```bash
 docker-compose logs backend -f
 ```
+
+### WCM Libraries Not Loading
+
+If WCM libraries fail to load, check the backend startup log for the `WCM API URL` line:
+
+```bash
+docker-compose logs backend | grep 'WCM API'
+```
+
+Common causes:
+- **Double URL**: If `HCL_DX_WCM_BASE_URL` is a full URL like `https://host/path`, the system now handles it correctly. Previously this caused a broken double-URL. Verify the logged URL is correct.
+- **404 Not Found**: Incorrect WCM path. Try `/wps/mycontenthandler/wcmrest` (v1) or check your DX version.
+- **401 Unauthorized**: Credentials issue. The backend auto-obtains an `LtpaToken2` — check that `HCL_DX_USERNAME`/`HCL_DX_PASSWORD` are correct.
+- **XML Response**: If the WCM API returns XML instead of JSON, the backend will log a warning. Ensure the API version supports JSON responses.
+
+### DAM Upload Not Working
+
+Check that the `LtpaToken2` is being obtained:
+```bash
+docker-compose logs backend | grep -i 'ltpa'
+```
+
+The DAM API **requires** `LtpaToken2` cookie authentication (per official OpenAPI spec). Basic Auth alone will return 401.
 
 ### Reset Database
 ```bash

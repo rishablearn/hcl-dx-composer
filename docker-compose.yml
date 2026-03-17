@@ -88,11 +88,14 @@ services:
       HCL_DX_HOST: ${HCL_DX_HOST:-}
       HCL_DX_PORT: ${HCL_DX_PORT:-443}
       HCL_DX_PROTOCOL: ${HCL_DX_PROTOCOL:-https}
-      HCL_DX_API_KEY: ${HCL_DX_API_KEY:-}
+      HCL_DX_USERNAME: ${HCL_DX_USERNAME:-wpsadmin}
+      HCL_DX_PASSWORD: ${HCL_DX_PASSWORD:-}
       HCL_DX_WCM_LIBRARY: ${HCL_DX_WCM_LIBRARY:-Web Content}
-      HCL_DX_DAM_BASE_URL: ${HCL_DX_DAM_BASE_URL:-}
+      # WCM API: path (/wps/mycontenthandler/wcmrest) or full URL supported
       HCL_DX_WCM_BASE_URL: ${HCL_DX_WCM_BASE_URL:-}
-      # LTPA2 SSO Configuration
+      # DAM API: auto-configured from host settings (/dx/api/dam/v1)
+      HCL_DX_DAM_BASE_URL: ${HCL_DX_DAM_BASE_URL:-}
+      # LTPA2 SSO Configuration (Optional)
       LTPA2_SECRET_KEY: ${LTPA2_SECRET_KEY:-}
       LTPA2_REALM: ${LTPA2_REALM:-}
       # JWT Secret for session management
@@ -105,9 +108,6 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       STABILITY_API_KEY: ${STABILITY_API_KEY:-}
       AI_IMAGE_PROVIDER: ${AI_IMAGE_PROVIDER:-pollinations}
-      # HCL DX DAM API Authentication
-      HCL_DX_USERNAME: ${HCL_DX_USERNAME:-wpsadmin}
-      HCL_DX_PASSWORD: ${HCL_DX_PASSWORD:-}
     volumes:
       - ./uploads:/var/uploads
     ports:

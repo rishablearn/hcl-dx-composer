@@ -174,32 +174,41 @@ Access-Control-Allow-Credentials: true
 
 ## API Authentication
 
-HCL DX supports two primary authentication methods for REST API access:
+HCL DX Composer uses **LtpaToken2** as the primary authentication method for both DAM and WCM API calls. This is the method specified in the official HCL DX OpenAPI documentation.
 
-### Method 1: Basic Authentication (Recommended for API Integration)
+### How Authentication Works
 
-Use a service account with username/password for server-to-server API calls:
+```
+┌─────────────────┐     POST /wps/j_security_check      ┌──────────────────┐
+│   DX Composer   │ ──────────────────────────────────▶  │   HCL DX Server  │
+│    Backend      │     (username + password)             │                  │
+│                 │                                       │                  │
+│                 │  ◀──────────────────────────────────  │                  │
+│                 │     Set-Cookie: LtpaToken2=...        │                  │
+│                 │                                       │                  │
+│  (cache token   │     Cookie: LtpaToken2=...            │                  │
+│   for 1 hour)   │ ──────────────────────────────────▶  │  WCM/DAM APIs    │
+│                 │     GET /wcmrest/Library               │                  │
+└─────────────────┘                                       └──────────────────┘
+```
 
-1. Request a service account from your HCL DX administrator
-2. Ensure the account has appropriate WCM/DAM permissions
-3. Configure in `.env`:
+1. **Auto-login**: On the first API call, the backend authenticates via `POST /wps/j_security_check` using the configured service account credentials
+2. **Token extraction**: Extracts the `LtpaToken2` cookie from the response `Set-Cookie` header
+3. **Token caching**: Caches the token in memory for 1 hour (tokens typically valid for 2 hours)
+4. **Token refresh**: Automatically re-authenticates when the cached token expires
+5. **Fallback**: If LTPA login fails, falls back to `Authorization: Basic` header
+
+### Configuration
 
 ```env
+# Service account credentials (used for LtpaToken2 login)
 HCL_DX_USERNAME=wcmservice
 HCL_DX_PASSWORD=your_secure_password
 ```
 
-API calls use the `Authorization: Basic` header:
+The backend uses these credentials to obtain `LtpaToken2` automatically. No manual token management is needed.
 
-```javascript
-const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-const headers = {
-  'Authorization': `Basic ${credentials}`,
-  'Content-Type': 'application/json'
-};
-```
-
-### Method 2: LTPA2 SSO Authentication
+### Method 2: LTPA2 SSO Authentication (Optional)
 
 For Single Sign-On with the HCL DX Portal:
 
@@ -221,15 +230,16 @@ For Single Sign-On with the HCL DX Portal:
 
 | Environment | Recommended Method |
 |-------------|-------------------|
-| **Production** | Basic Auth with dedicated service account |
-| **SSO Users** | LTPA2 token passthrough |
-| **Development** | Basic Auth with test account |
+| **Production** | LtpaToken2 via service account (auto-login) |
+| **SSO Users** | LTPA2 token passthrough from Portal |
+| **Development** | LtpaToken2 via service account (auto-login) |
 
 **Security Notes:**
 - Never hardcode credentials in source code
 - Use environment variables for all secrets
 - Rotate service account passwords periodically
 - Use HTTPS for all API communications
+- The `LtpaToken2` is cached server-side only, never exposed to the browser
 
 ---
 
@@ -237,9 +247,17 @@ For Single Sign-On with the HCL DX Portal:
 
 ### Base URL Configuration
 
+`HCL_DX_WCM_BASE_URL` accepts either a path or a full URL:
+
 ```env
+# Recommended: path only (combined with HCL_DX_HOST/PORT/PROTOCOL)
+HCL_DX_WCM_BASE_URL=/wps/mycontenthandler/wcmrest
+
+# Also supported: full URL
 HCL_DX_WCM_BASE_URL=https://your-dx-server.com/wps/mycontenthandler/wcmrest
 ```
+
+> **Note:** If not set, defaults to `/wps/mycontenthandler/wcmrest`.
 
 ### API Endpoints Used
 
@@ -258,12 +276,12 @@ HCL_DX_WCM_BASE_URL=https://your-dx-server.com/wps/mycontenthandler/wcmrest
 ### Creating Content via API
 
 ```javascript
-// Example: Create WCM content using Basic Authentication
+// Example: Create WCM content via the dxService (uses LtpaToken2 automatically)
 const createContent = async (contentData) => {
-  // Create Basic Auth header
-  const credentials = Buffer.from(`${HCL_DX_USERNAME}:${HCL_DX_PASSWORD}`).toString('base64');
+  // dxService.createWcmClient() auto-obtains LtpaToken2
+  const client = await dxService.createWcmClient();
   
-  const response = await axios.post(`${WCM_BASE_URL}/Content`, {
+  const response = await client.post('/Content', {
     name: contentData.title,
     title: contentData.title,
     type: 'Content',
@@ -271,11 +289,6 @@ const createContent = async (contentData) => {
     authoringTemplateId: contentData.authoringTemplateId,
     elements: contentData.elements,
     locale: contentData.language || 'en' // For multilingual
-  }, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Basic ${credentials}`
-    }
   });
   return response.data;
 };
@@ -304,8 +317,11 @@ The Composer supports dynamic form generation for these WCM element types:
 
 ### Base URL Configuration
 
+The DAM API path (`/dx/api/dam/v1`) is auto-configured from `HCL_DX_HOST`/`HCL_DX_PORT`/`HCL_DX_PROTOCOL`. No separate `HCL_DX_DAM_BASE_URL` is required.
+
 ```env
-HCL_DX_DAM_BASE_URL=https://your-dx-server.com/dx/api/dam/v1
+# The DAM API URL is constructed automatically:
+# ${HCL_DX_PROTOCOL}://${HCL_DX_HOST}:${HCL_DX_PORT}/dx/api/dam/v1
 ```
 
 ### API Endpoints Used
@@ -350,27 +366,22 @@ const createCollection = async (name, description) => {
 ### Uploading Assets
 
 ```javascript
-// Example: Upload asset to DAM using Basic Authentication
-const uploadAsset = async (collectionId, file, metadata) => {
-  const credentials = Buffer.from(`${HCL_DX_USERNAME}:${HCL_DX_PASSWORD}`).toString('base64');
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('metadata', JSON.stringify(metadata));
-
-  const response = await axios.post(
-    `${DAM_BASE_URL}/collections/${collectionId}/assets`,
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': `Basic ${credentials}`
-      }
-    }
+// Example: Upload asset to DAM (uses LtpaToken2 automatically)
+const uploadAsset = async (collectionId, filePath, filename, mimeType, metadata) => {
+  // dxService.uploadAsset() auto-obtains LtpaToken2 for authentication
+  const result = await dxService.uploadAsset(
+    collectionId, filePath, filename, mimeType, metadata
   );
-  return response.data;
+  return result;
 };
+
+// Or upload to the "Not Approved Assets" collection for workflow:
+const result = await dxService.uploadToNotApproved(
+  filePath, filename, mimeType, metadata
+);
 ```
+
+> **Note:** The DAM API requires `LtpaToken2` cookie authentication per the official OpenAPI spec. The backend handles this automatically.
 
 ---
 
@@ -588,9 +599,14 @@ com.ibm.ws.webcontainer.ADD_STRICT_CORS_SUPPORT=true
 **Symptom**: 401 Unauthorized errors
 
 **Checklist**:
-- Verify API key is valid and not expired
-- Check LTPA2 key configuration matches WebSphere
-- Ensure user has required portal roles
+- Verify `HCL_DX_USERNAME` and `HCL_DX_PASSWORD` are correct in `.env`
+- Check backend logs for `LtpaToken2` login status:
+  ```bash
+  docker-compose logs backend | grep -i 'ltpa'
+  ```
+- If LTPA login fails, the backend falls back to Basic Auth — but DAM API requires LTPA
+- Ensure the service account has appropriate WCM/DAM permissions
+- Check LTPA2 key configuration matches WebSphere (for SSO users)
 
 #### 3. Content Not Publishing
 
@@ -644,34 +660,37 @@ HCL_DX_HOST=dx.company.com
 HCL_DX_PORT=443
 HCL_DX_PROTOCOL=https
 
-# Required: Service Account Credentials (Basic Auth)
+# Required: Service Account Credentials (used for auto LtpaToken2 login)
 HCL_DX_USERNAME=wcmservice
 HCL_DX_PASSWORD=your_secure_password
 
-# API URLs (auto-generated from host, or set manually)
-HCL_DX_WCM_BASE_URL=https://dx.company.com/wps/mycontenthandler/wcmrest
-HCL_DX_DAM_BASE_URL=https://dx.company.com/dx/api/dam/v1
+# WCM API path (path only recommended; full URL also supported)
+HCL_DX_WCM_BASE_URL=/wps/mycontenthandler/wcmrest
 
 # Target WCM Library
 HCL_DX_WCM_LIBRARY=Web Content
 ```
 
+> **Note:** The DAM API URL is auto-configured as `${protocol}://${host}:${port}/dx/api/dam/v1`. No separate DAM URL variable is needed.
+
 ### Test API Connectivity
 
-After configuration, test your API connection using Basic Authentication:
+After configuration, test your API connection:
 
 ```bash
 # Test WCM API (replace username:password with your credentials)
-curl -u "wcmservice:password" \
+curl -k -u "wcmservice:password" \
      https://dx.company.com/wps/mycontenthandler/wcmrest/Library
 
 # Test DAM API
-curl -u "wcmservice:password" \
+curl -k -u "wcmservice:password" \
      https://dx.company.com/dx/api/dam/v1/collections
+```
 
-# Or using explicit Basic Auth header
-curl -H "Authorization: Basic $(echo -n 'username:password' | base64)" \
-     https://dx.company.com/wps/mycontenthandler/wcmrest/Library
+Once deployed, verify in-app connectivity:
+```bash
+# Check backend startup logs for API URLs
+docker-compose logs backend | grep 'HCL DX Service Configuration' -A 10
 ```
 
 ### Verify in Application
