@@ -17,6 +17,20 @@ class DxService {
     this.damBaseUrl = process.env.HCL_DX_DAM_BASE_URL;
     this.wcmBaseUrl = process.env.HCL_DX_WCM_BASE_URL;
     this.defaultLibrary = process.env.HCL_DX_WCM_LIBRARY || 'Web Content';
+    
+    // Log configuration status
+    if (this.isConfigured()) {
+      logger.info(`DX Service configured: ${this.getBaseUrl()}`);
+    } else {
+      logger.warn('DX Service not configured - HCL DX integration disabled');
+    }
+  }
+
+  /**
+   * Check if HCL DX is properly configured
+   */
+  isConfigured() {
+    return !!(this.host && (this.apiKey || this.damBaseUrl || this.wcmBaseUrl));
   }
 
   /**

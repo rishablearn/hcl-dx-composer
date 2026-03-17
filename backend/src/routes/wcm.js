@@ -432,7 +432,7 @@ router.post('/content/:id/reject', authenticateToken, requireApprover, async (re
 
 /**
  * POST /api/wcm/content/:id/publish
- * Publish approved content to HCL DX WCM
+ * Publish approved content to HCL DX WCM (or mark as published locally if DX not configured)
  */
 router.post('/content/:id/publish', authenticateToken, requireApprover, async (req, res) => {
   try {
@@ -448,6 +448,35 @@ router.post('/content/:id/publish', authenticateToken, requireApprover, async (r
 
     const content = contentResult.rows[0];
 
+    // Check if HCL DX is configured
+    if (!dxService.isConfigured()) {
+      // DX not configured - just update local status
+      const result = await db.query(`
+        UPDATE wcm_staged_content 
+        SET status = 'published', 
+            current_workflow_stage = 'Published',
+            published_at = NOW(), 
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [req.params.id]);
+
+      await db.query(`
+        INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
+        VALUES ('wcm_content', $1, 'publish', 'approved', 'published', $2, $3)
+      `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', note: 'HCL DX not configured' })]);
+
+      logger.info(`WCM content published locally (DX not configured): ${req.params.id}`);
+
+      return res.json({
+        success: true,
+        content: result.rows[0],
+        dxContent: null,
+        message: 'Content published locally. HCL DX integration not configured.'
+      });
+    }
+
+    // HCL DX is configured - proceed with DX publish
     try {
       // Create content in HCL DX WCM
       const dxContent = await dxService.createContent({
@@ -489,7 +518,28 @@ router.post('/content/:id/publish', authenticateToken, requireApprover, async (r
       });
     } catch (dxError) {
       logger.error('Failed to publish content to DX:', dxError);
-      return res.status(500).json({ error: 'Failed to publish content to HCL DX WCM' });
+      // Fall back to local publish
+      const result = await db.query(`
+        UPDATE wcm_staged_content 
+        SET status = 'published', 
+            current_workflow_stage = 'Published',
+            published_at = NOW(), 
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [req.params.id]);
+
+      await db.query(`
+        INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
+        VALUES ('wcm_content', $1, 'publish', 'approved', 'published', $2, $3)
+      `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', error: dxError.message })]);
+
+      return res.json({
+        success: true,
+        content: result.rows[0],
+        dxContent: null,
+        message: 'Content published locally. DX publish failed: ' + dxError.message
+      });
     }
   } catch (error) {
     logger.error('Error publishing content:', error);

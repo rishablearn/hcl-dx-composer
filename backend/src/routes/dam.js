@@ -514,7 +514,7 @@ router.post('/assets/:id/reject', authenticateToken, requireApprover, async (req
 
 /**
  * POST /api/dam/assets/:id/publish
- * Publish approved asset to HCL DX DAM
+ * Publish approved asset to HCL DX DAM (or mark as published locally if DX not configured)
  */
 router.post('/assets/:id/publish', authenticateToken, requireApprover, async (req, res) => {
   try {
@@ -531,7 +531,34 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
     const asset = assetResult.rows[0];
     const filePath = path.join(UPLOAD_PATH, asset.file_path.replace(/^\//, ''));
 
-    // Get or create DX collection
+    // Check if HCL DX is configured
+    if (!dxService.isConfigured()) {
+      // DX not configured - just update local status
+      const result = await db.query(`
+        UPDATE staged_assets 
+        SET status = 'published', 
+            published_at = NOW(), 
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [req.params.id]);
+
+      await db.query(`
+        INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
+        VALUES ('asset', $1, 'publish', 'approved', 'published', $2, $3)
+      `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', note: 'HCL DX not configured' })]);
+
+      logger.info(`Asset published locally (DX not configured): ${req.params.id}`);
+
+      return res.json({
+        success: true,
+        asset: result.rows[0],
+        dxAsset: null,
+        message: 'Asset published locally. HCL DX integration not configured.'
+      });
+    }
+
+    // HCL DX is configured - proceed with DX upload
     let dxCollectionId = asset.dx_collection_id;
     
     if (!dxCollectionId) {
@@ -558,7 +585,29 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
         });
       } catch (dxError) {
         logger.error('Failed to create DX collection:', dxError);
-        return res.status(500).json({ error: 'Failed to create DAM collection in HCL DX' });
+        // Fall back to local publish
+        const result = await db.query(`
+          UPDATE staged_assets 
+          SET status = 'published', 
+              published_at = NOW(), 
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [req.params.id]);
+
+        await db.query(`
+          INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
+          VALUES ('asset', $1, 'publish', 'approved', 'published', $2, $3)
+        `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', error: dxError.message })]);
+
+        logger.warn(`Asset published locally (DX error): ${req.params.id}`);
+
+        return res.json({
+          success: true,
+          asset: result.rows[0],
+          dxAsset: null,
+          message: 'Asset published locally. DX upload failed: ' + dxError.message
+        });
       }
     }
 
@@ -606,7 +655,27 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
       });
     } catch (dxError) {
       logger.error('Failed to upload asset to DX:', dxError);
-      return res.status(500).json({ error: 'Failed to publish asset to HCL DX DAM' });
+      // Fall back to local publish
+      const result = await db.query(`
+        UPDATE staged_assets 
+        SET status = 'published', 
+            published_at = NOW(), 
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [req.params.id]);
+
+      await db.query(`
+        INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
+        VALUES ('asset', $1, 'publish', 'approved', 'published', $2, $3)
+      `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', error: dxError.message })]);
+
+      return res.json({
+        success: true,
+        asset: result.rows[0],
+        dxAsset: null,
+        message: 'Asset published locally. DX upload failed: ' + dxError.message
+      });
     }
   } catch (error) {
     logger.error('Error publishing asset:', error);
