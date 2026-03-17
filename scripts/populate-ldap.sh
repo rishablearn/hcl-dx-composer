@@ -55,7 +55,8 @@ OU_EXISTS=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "
 if [ "$OU_EXISTS" -eq "0" ]; then
     echo -e "${YELLOW}Creating organizational units...${NC}"
     
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" << 'LDIF'
+    # Create OUs one at a time to handle errors better
+    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
 dn: ou=Users,dc=hcldx,dc=local
 objectClass: organizationalUnit
 ou: Users
@@ -84,7 +85,7 @@ USER_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b 
 if [ "$USER_COUNT" -eq "0" ]; then
     echo -e "${YELLOW}Creating users...${NC}"
     
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" << 'LDIF'
+    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
 dn: uid=admin,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
 objectClass: posixAccount
@@ -200,7 +201,7 @@ GROUP_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b
 if [ "$GROUP_COUNT" -eq "0" ]; then
     echo -e "${YELLOW}Creating groups...${NC}"
     
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" << 'LDIF'
+    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
 dn: cn=Admins,ou=Groups,dc=hcldx,dc=local
 objectClass: groupOfNames
 cn: Admins

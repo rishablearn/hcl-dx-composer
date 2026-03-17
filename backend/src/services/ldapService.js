@@ -65,7 +65,8 @@ class LdapService {
           if (searchErr) {
             client.unbind();
             logger.error('LDAP search error:', searchErr);
-            return reject(new Error('User search failed'));
+            logger.error('Search base may not exist. Run: ./scripts/populate-ldap.sh');
+            return reject(new Error('User search failed - LDAP not initialized. Run ./scripts/populate-ldap.sh'));
           }
 
           searchRes.on('searchEntry', (entry) => {
