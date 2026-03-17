@@ -265,9 +265,54 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
       VALUES ('asset', $1, 'upload', 'draft', $2)
     `, [result.rows[0].id, req.user.id]);
 
+    // Upload to HCL DX "Not Approved Assets" collection if configured
+    let dxUploadResult = null;
+    if (dxService.isConfigured()) {
+      try {
+        logger.info(`Uploading to HCL DX "Not Approved Assets" collection...`);
+        const notApprovedCollection = await dxService.getNotApprovedCollection();
+        
+        const dxAsset = await dxService.uploadAsset(
+          notApprovedCollection.id,
+          file.path,
+          file.originalname,
+          file.mimetype,
+          {
+            title: file.originalname,
+            description: `Uploaded via HCL DX Composer - Pending Approval`,
+            keywords: parsedTags,
+            uploadedBy: req.user.username,
+            uploadedAt: new Date().toISOString(),
+            approvalStatus: 'pending'
+          }
+        );
+
+        // Update local record with DX references
+        await db.query(`
+          UPDATE staged_assets 
+          SET dx_asset_id = $2, dx_collection_id = $3, updated_at = NOW()
+          WHERE id = $1
+        `, [result.rows[0].id, dxAsset.id, notApprovedCollection.id]);
+
+        dxUploadResult = {
+          assetId: dxAsset.id,
+          collectionId: notApprovedCollection.id,
+          collectionName: 'Not Approved Assets'
+        };
+
+        logger.info(`Asset uploaded to DX "Not Approved Assets": ${dxAsset.id}`);
+      } catch (dxError) {
+        logger.warn(`DX upload failed (asset saved locally): ${dxError.message}`);
+        dxUploadResult = { error: dxError.message };
+      }
+    }
+
     logger.info(`Asset uploaded successfully: ${file.originalname} by ${req.user.username}`);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      ...result.rows[0],
+      dxUpload: dxUploadResult
+    });
   } catch (error) {
     logger.error('Error uploading asset:', error.message);
     logger.error('Stack:', error.stack);
@@ -558,75 +603,68 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
       });
     }
 
-    // HCL DX is configured - proceed with DX upload
-    let dxCollectionId = asset.dx_collection_id;
-    
-    if (!dxCollectionId) {
-      // Create a new collection with date stamp
-      const now = new Date();
-      const collectionName = `Approved_${now.getFullYear()}_${now.toLocaleString('default', { month: 'long' })}`;
+    // HCL DX is configured - Move asset from "Not Approved" to "Approved Assets" collection
+    try {
+      logger.info(`Moving asset to "Approved Assets" collection in HCL DX...`);
       
-      try {
-        const dxCollection = await dxService.createCollection(
-          collectionName,
-          'Auto-created collection for approved assets',
+      // Get or create "Approved Assets" collection
+      const approvedCollection = await dxService.getApprovedCollection();
+      const sourceCollectionId = asset.dx_collection_id;
+      const sourceDxAssetId = asset.dx_asset_id;
+
+      let dxAssetId;
+
+      if (sourceDxAssetId && sourceCollectionId) {
+        // Asset exists in DX - move it to Approved collection
+        logger.info(`Moving asset ${sourceDxAssetId} from collection ${sourceCollectionId} to ${approvedCollection.id}`);
+        
+        // Upload to Approved collection (DX doesn't have a move API, so we re-upload)
+        const dxAsset = await dxService.uploadAsset(
+          approvedCollection.id,
+          filePath,
+          asset.original_filename,
+          asset.mime_type,
           {
-            approved: 'true',
-            approvedDate: now.toISOString(),
-            source: 'hcl-dx-composer'
+            title: asset.original_filename,
+            description: `Approved asset - Published via HCL DX Composer`,
+            keywords: asset.tags || [],
+            approvedBy: req.user.username,
+            approvedAt: new Date().toISOString(),
+            approvalStatus: 'approved',
+            originalAssetId: sourceDxAssetId
           }
         );
-        dxCollectionId = dxCollection.id;
+        dxAssetId = dxAsset.id;
 
-        // Set access control
-        await dxService.setCollectionAccessControl(dxCollectionId, {
-          administrator: 'wpsadmin',
-          user: 'Anonymous Portal User'
-        });
-      } catch (dxError) {
-        logger.error('Failed to create DX collection:', dxError);
-        // Fall back to local publish
-        const result = await db.query(`
-          UPDATE staged_assets 
-          SET status = 'published', 
-              published_at = NOW(), 
-              updated_at = NOW()
-          WHERE id = $1
-          RETURNING *
-        `, [req.params.id]);
-
-        await db.query(`
-          INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
-          VALUES ('asset', $1, 'publish', 'approved', 'published', $2, $3)
-        `, [req.params.id, req.user.id, JSON.stringify({ mode: 'local', error: dxError.message })]);
-
-        logger.warn(`Asset published locally (DX error): ${req.params.id}`);
-
-        return res.json({
-          success: true,
-          asset: result.rows[0],
-          dxAsset: null,
-          message: 'Asset published locally. DX upload failed: ' + dxError.message
-        });
-      }
-    }
-
-    // Upload asset to DX
-    try {
-      const dxAsset = await dxService.uploadAsset(
-        dxCollectionId,
-        filePath,
-        asset.original_filename,
-        asset.mime_type,
-        {
-          ...asset.metadata,
-          approved: 'true',
-          approvedDate: new Date().toISOString(),
-          tags: asset.tags
+        // Delete from "Not Approved" collection
+        try {
+          await dxService.deleteAssetFromCollection(sourceCollectionId, sourceDxAssetId);
+          logger.info(`Deleted asset from "Not Approved" collection: ${sourceDxAssetId}`);
+        } catch (deleteErr) {
+          logger.warn(`Could not delete from source collection: ${deleteErr.message}`);
         }
-      );
+      } else {
+        // Asset not in DX yet - upload directly to Approved collection
+        logger.info(`Asset not in DX, uploading directly to "Approved Assets" collection`);
+        
+        const dxAsset = await dxService.uploadAsset(
+          approvedCollection.id,
+          filePath,
+          asset.original_filename,
+          asset.mime_type,
+          {
+            title: asset.original_filename,
+            description: `Approved asset - Published via HCL DX Composer`,
+            keywords: asset.tags || [],
+            approvedBy: req.user.username,
+            approvedAt: new Date().toISOString(),
+            approvalStatus: 'approved'
+          }
+        );
+        dxAssetId = dxAsset.id;
+      }
 
-      // Update staged asset with DX references
+      // Update local record with new DX references
       const result = await db.query(`
         UPDATE staged_assets 
         SET status = 'published', 
@@ -636,25 +674,31 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
             updated_at = NOW()
         WHERE id = $1
         RETURNING *
-      `, [req.params.id, dxAsset.id, dxCollectionId]);
+      `, [req.params.id, dxAssetId, approvedCollection.id]);
 
       await db.query(`
         INSERT INTO workflow_history (entity_type, entity_id, action, from_status, to_status, performed_by, metadata)
         VALUES ('asset', $1, 'publish', 'approved', 'published', $2, $3)
-      `, [req.params.id, req.user.id, JSON.stringify({ dx_asset_id: dxAsset.id, dx_collection_id: dxCollectionId })]);
+      `, [req.params.id, req.user.id, JSON.stringify({ 
+        dx_asset_id: dxAssetId, 
+        dx_collection_id: approvedCollection.id,
+        collection_name: 'Approved Assets',
+        moved_from: sourceCollectionId || null
+      })]);
 
-      logger.info(`Asset published to DX: ${req.params.id} -> ${dxAsset.id}`);
+      logger.info(`Asset published to DX "Approved Assets": ${dxAssetId}`);
 
       res.json({
         success: true,
         asset: result.rows[0],
         dxAsset: {
-          id: dxAsset.id,
-          collectionId: dxCollectionId
+          id: dxAssetId,
+          collectionId: approvedCollection.id,
+          collectionName: 'Approved Assets'
         }
       });
     } catch (dxError) {
-      logger.error('Failed to upload asset to DX:', dxError);
+      logger.error('Failed to publish to DX:', dxError);
       // Fall back to local publish
       const result = await db.query(`
         UPDATE staged_assets 
@@ -674,7 +718,7 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
         success: true,
         asset: result.rows[0],
         dxAsset: null,
-        message: 'Asset published locally. DX upload failed: ' + dxError.message
+        message: 'Asset published locally. DX publish failed: ' + dxError.message
       });
     }
   } catch (error) {
@@ -827,6 +871,154 @@ router.get('/workflow-stats', authenticateToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching workflow stats:', error);
     res.status(500).json({ error: 'Failed to fetch workflow statistics' });
+  }
+});
+
+// ===========================================================================
+// HCL DX DAM Integration Routes
+// ===========================================================================
+
+/**
+ * GET /api/dam/dx/status
+ * Get HCL DX DAM integration status and collections
+ */
+router.get('/dx/status', authenticateToken, async (req, res) => {
+  try {
+    const status = {
+      configured: dxService.isConfigured(),
+      host: process.env.HCL_DX_HOST || null,
+      collections: {
+        notApproved: null,
+        approved: null
+      },
+      error: null
+    };
+
+    if (!status.configured) {
+      status.error = 'HCL DX not configured. Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD';
+      return res.json(status);
+    }
+
+    // Try to get collections from DX
+    try {
+      const collections = await dxService.getCollections();
+      const notApproved = collections.contents?.find(c => c.name === 'Not Approved Assets');
+      const approved = collections.contents?.find(c => c.name === 'Approved Assets');
+
+      status.collections = {
+        notApproved: notApproved ? { id: notApproved.id, name: notApproved.name } : null,
+        approved: approved ? { id: approved.id, name: approved.name } : null,
+        total: collections.contents?.length || 0
+      };
+    } catch (dxError) {
+      status.error = `DX connection failed: ${dxError.message}`;
+    }
+
+    res.json(status);
+  } catch (error) {
+    logger.error('Error checking DX status:', error);
+    res.status(500).json({ error: 'Failed to check DX status' });
+  }
+});
+
+/**
+ * POST /api/dam/dx/init-collections
+ * Initialize the two required DX collections: "Not Approved Assets" and "Approved Assets"
+ */
+router.post('/dx/init-collections', authenticateToken, requireApprover, async (req, res) => {
+  try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({ 
+        error: 'HCL DX not configured',
+        message: 'Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD environment variables'
+      });
+    }
+
+    logger.info('Initializing HCL DX DAM collections...');
+
+    const results = {
+      notApproved: null,
+      approved: null,
+      errors: []
+    };
+
+    // Create/get "Not Approved Assets" collection
+    try {
+      const notApproved = await dxService.getNotApprovedCollection();
+      results.notApproved = {
+        id: notApproved.id,
+        name: notApproved.name,
+        status: 'ready'
+      };
+      logger.info(`"Not Approved Assets" collection ready: ${notApproved.id}`);
+    } catch (error) {
+      results.errors.push(`Not Approved Assets: ${error.message}`);
+      logger.error('Failed to create "Not Approved Assets" collection:', error);
+    }
+
+    // Create/get "Approved Assets" collection
+    try {
+      const approved = await dxService.getApprovedCollection();
+      results.approved = {
+        id: approved.id,
+        name: approved.name,
+        status: 'ready'
+      };
+      logger.info(`"Approved Assets" collection ready: ${approved.id}`);
+    } catch (error) {
+      results.errors.push(`Approved Assets: ${error.message}`);
+      logger.error('Failed to create "Approved Assets" collection:', error);
+    }
+
+    res.json({
+      success: results.errors.length === 0,
+      collections: results,
+      message: results.errors.length === 0 
+        ? 'Both DX collections initialized successfully' 
+        : `Initialized with errors: ${results.errors.join(', ')}`
+    });
+  } catch (error) {
+    logger.error('Error initializing DX collections:', error);
+    res.status(500).json({ error: 'Failed to initialize DX collections' });
+  }
+});
+
+/**
+ * GET /api/dam/dx/collections
+ * Get all collections from HCL DX DAM
+ */
+router.get('/dx/collections', authenticateToken, async (req, res) => {
+  try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({ error: 'HCL DX not configured' });
+    }
+
+    const collections = await dxService.getCollections();
+    res.json(collections);
+  } catch (error) {
+    logger.error('Error fetching DX collections:', error);
+    res.status(500).json({ error: 'Failed to fetch DX collections', details: error.message });
+  }
+});
+
+/**
+ * GET /api/dam/dx/collections/:id/items
+ * Get items from a specific DX collection
+ */
+router.get('/dx/collections/:id/items', authenticateToken, async (req, res) => {
+  try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({ error: 'HCL DX not configured' });
+    }
+
+    const items = await dxService.getCollectionItems(req.params.id, {
+      limit: req.query.limit || 50,
+      offset: req.query.offset || 0
+    });
+    res.json(items);
+  } catch (error) {
+    logger.error('Error fetching DX collection items:', error);
+    res.status(500).json({ error: 'Failed to fetch collection items', details: error.message });
   }
 });
 
