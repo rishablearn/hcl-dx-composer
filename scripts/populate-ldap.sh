@@ -6,9 +6,17 @@
 # Run after starting the OpenLDAP container
 #
 # Usage: ./scripts/populate-ldap.sh
+#
+# Edge cases handled:
+# - Container not running
+# - LDAP not ready yet
+# - Entries already exist (continues without error)
+# - Network issues (retries)
+# - Permission issues
 #===============================================================================
 
-set -e
+# Don't exit on error - we handle errors ourselves
+set +e
 
 # Colors
 RED='\033[0;31m'
@@ -18,35 +26,67 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration - read from .env or use defaults
-if [ -f .env ]; then
-    source .env 2>/dev/null || true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    source "${PROJECT_DIR}/.env" 2>/dev/null || true
 fi
 
 LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:-admin_password}"
 CONTAINER_NAME="${LDAP_CONTAINER_NAME:-hcl-dx-openldap}"
+MAX_RETRIES=30
+RETRY_DELAY=2
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${CYAN}  HCL DX Composer - LDAP User Population${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Check if docker is available
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Error: Docker is not installed or not in PATH${NC}"
+    exit 1
+fi
+
+# Check if container exists (running or stopped)
+if ! docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo -e "${RED}Error: LDAP container '${CONTAINER_NAME}' does not exist${NC}"
+    echo -e "${YELLOW}Start the container first: ./scripts/deploy.sh --ssl --build${NC}"
+    exit 1
+fi
+
 # Check if container is running
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo -e "${RED}Error: LDAP container '${CONTAINER_NAME}' is not running${NC}"
-    exit 1
+    echo -e "${YELLOW}LDAP container '${CONTAINER_NAME}' is not running. Attempting to start...${NC}"
+    docker start ${CONTAINER_NAME} 2>/dev/null
+    sleep 5
+    
+    if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo -e "${RED}Error: Could not start LDAP container${NC}"
+        exit 1
+    fi
 fi
 
 # Wait for LDAP to be ready
 echo -e "${YELLOW}Waiting for LDAP server to be ready...${NC}"
-for i in {1..30}; do
+LDAP_READY=false
+for i in $(seq 1 $MAX_RETRIES); do
     if docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(objectClass=*)" >/dev/null 2>&1; then
         echo -e "${GREEN}✓ LDAP server is ready${NC}"
+        LDAP_READY=true
         break
     fi
     echo -n "."
-    sleep 2
+    sleep $RETRY_DELAY
 done
 echo ""
+
+if [ "$LDAP_READY" = false ]; then
+    echo -e "${RED}Error: LDAP server did not become ready in time${NC}"
+    echo -e "${YELLOW}Check logs: docker logs ${CONTAINER_NAME}${NC}"
+    exit 1
+fi
 
 # Check if Users OU exists
 echo -e "${CYAN}Checking if organizational units exist...${NC}"

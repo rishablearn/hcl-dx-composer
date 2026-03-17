@@ -1,5 +1,6 @@
 /**
- * LDAP Service - Handles Active Directory authentication and group membership
+ * LDAP Service - Handles Active Directory/OpenLDAP authentication and group membership
+ * Supports both Local OpenLDAP (Docker) and External AD/LDAP servers
  */
 
 const ldap = require('ldapjs');
@@ -13,17 +14,90 @@ class LdapService {
     this.bindPassword = process.env.LDAP_BIND_PASSWORD;
     this.userSearchBase = process.env.LDAP_USER_SEARCH_BASE || this.baseDN;
     this.groupSearchBase = process.env.LDAP_GROUP_SEARCH_BASE || this.baseDN;
+    this.ldapMode = process.env.LDAP_MODE || 'local';
+    
+    // Validate configuration on startup
+    this.validateConfig();
   }
 
   /**
-   * Create a new LDAP client connection
+   * Validate LDAP configuration
+   */
+  validateConfig() {
+    const missing = [];
+    if (!this.url) missing.push('LDAP_URL');
+    if (!this.baseDN) missing.push('LDAP_BASE_DN');
+    if (!this.bindDN) missing.push('LDAP_BIND_DN');
+    if (!this.bindPassword) missing.push('LDAP_BIND_PASSWORD');
+    
+    if (missing.length > 0) {
+      logger.warn(`LDAP configuration incomplete. Missing: ${missing.join(', ')}`);
+      logger.warn('LDAP authentication will not work until configured.');
+    } else {
+      logger.info(`LDAP configured: ${this.url} (mode: ${this.ldapMode})`);
+    }
+  }
+
+  /**
+   * Check if LDAP is properly configured
+   */
+  isConfigured() {
+    return this.url && this.baseDN && this.bindDN && this.bindPassword;
+  }
+
+  /**
+   * Create a new LDAP client connection with error handling
    */
   createClient() {
-    return ldap.createClient({
+    if (!this.isConfigured()) {
+      throw new Error('LDAP is not configured. Check environment variables.');
+    }
+    
+    const client = ldap.createClient({
       url: this.url,
       timeout: 10000,
       connectTimeout: 10000,
-      reconnect: true
+      reconnect: {
+        initialDelay: 100,
+        maxDelay: 500,
+        failAfter: 3
+      }
+    });
+    
+    return client;
+  }
+
+  /**
+   * Test LDAP connection
+   */
+  async testConnection() {
+    return new Promise((resolve, reject) => {
+      if (!this.isConfigured()) {
+        return reject(new Error('LDAP not configured'));
+      }
+      
+      try {
+        const client = this.createClient();
+        
+        client.on('error', (err) => {
+          logger.error('LDAP connection test failed:', err);
+          reject(new Error(`LDAP connection failed: ${err.message}`));
+        });
+        
+        client.bind(this.bindDN, this.bindPassword, (err) => {
+          if (err) {
+            client.unbind();
+            logger.error('LDAP bind test failed:', err);
+            return reject(new Error(`LDAP bind failed: ${err.message}`));
+          }
+          
+          client.unbind();
+          logger.info('LDAP connection test successful');
+          resolve({ status: 'connected', url: this.url });
+        });
+      } catch (err) {
+        reject(new Error(`LDAP connection error: ${err.message}`));
+      }
     });
   }
 
@@ -31,14 +105,45 @@ class LdapService {
    * Authenticate user with LDAP credentials
    */
   async authenticate(username, password) {
+    // Check configuration first
+    if (!this.isConfigured()) {
+      logger.error('LDAP authentication attempted but LDAP is not configured');
+      throw new Error('LDAP is not configured. Please configure LDAP settings.');
+    }
+    
+    // Validate inputs
+    if (!username || !password) {
+      throw new Error('Username and password are required');
+    }
+    
     return new Promise((resolve, reject) => {
-      const client = this.createClient();
+      let client;
+      try {
+        client = this.createClient();
+      } catch (err) {
+        return reject(err);
+      }
+      
       let userDN = null;
       let userData = null;
+      let connectionError = false;
 
       client.on('error', (err) => {
+        connectionError = true;
         logger.error('LDAP client error:', err);
-        reject(new Error('LDAP connection error'));
+        if (err.code === 'ECONNREFUSED') {
+          reject(new Error('Cannot connect to LDAP server. Is the LDAP container running?'));
+        } else if (err.code === 'ETIMEDOUT') {
+          reject(new Error('LDAP connection timed out. Check network connectivity.'));
+        } else {
+          reject(new Error(`LDAP connection error: ${err.message}`));
+        }
+      });
+      
+      client.on('connectError', (err) => {
+        connectionError = true;
+        logger.error('LDAP connect error:', err);
+        reject(new Error('Failed to connect to LDAP server'));
       });
 
       // First, bind with service account to search for user
@@ -88,13 +193,24 @@ class LdapService {
           searchRes.on('error', (err) => {
             client.unbind();
             logger.error('LDAP search result error:', err);
-            reject(new Error('User search failed'));
+            
+            // Provide helpful error messages based on error type
+            if (err.lde_message === 'No Such Object') {
+              logger.error('LDAP search base does not exist. Users not initialized.');
+              logger.error('Run: ./scripts/populate-ldap.sh to create LDAP users');
+              reject(new Error('LDAP not initialized. Run ./scripts/populate-ldap.sh to create users.'));
+            } else if (err.code === 32) {
+              reject(new Error('LDAP directory structure missing. Initialize with populate-ldap.sh'));
+            } else {
+              reject(new Error(`LDAP search failed: ${err.message || err.lde_message || 'Unknown error'}`));
+            }
           });
 
           searchRes.on('end', () => {
             if (!userDN) {
               client.unbind();
-              return reject(new Error('User not found'));
+              logger.warn(`User not found in LDAP: ${username}`);
+              return reject(new Error('User not found. Check username or run ./scripts/populate-ldap.sh'));
             }
 
             // Authenticate the user with their credentials
