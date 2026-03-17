@@ -34,6 +34,10 @@ class DxService {
     // DAM API path per official docs: /dx/api/dam/v1
     this.damApiPath = '/dx/api/dam/v1';
     
+    // LTPA Token cache for authentication
+    this.ltpaToken = null;
+    this.ltpaTokenExpiry = null;
+    
     // Log configuration
     this.logConfiguration();
   }
@@ -75,29 +79,132 @@ class DxService {
   }
 
   /**
-   * Create axios client with Basic Auth
-   * HCL DX DAM API supports Basic Auth with username:password
+   * Login to HCL DX and obtain LtpaToken2
+   * DAM and WCM APIs require LtpaToken2 cookie authentication
    */
-  createClient(authToken) {
+  async login() {
+    const reqId = Date.now();
+    
+    // Return cached token if still valid (tokens typically valid for 2 hours, we refresh at 1 hour)
+    if (this.ltpaToken && this.ltpaTokenExpiry && Date.now() < this.ltpaTokenExpiry) {
+      logger.debug(`[${reqId}] Using cached LTPA token`);
+      return this.ltpaToken;
+    }
+
+    logger.info(`[${reqId}] Logging in to HCL DX to obtain LtpaToken2...`);
+    
+    try {
+      // HCL DX Portal login endpoint
+      const loginUrl = `${this.getBaseUrl()}/wps/portal/cxml/04_SD9ePMtCP1I800I_KydQvyHFUBADPmuQy`;
+      
+      // Try j_security_check first (WebSphere form-based auth)
+      const formData = new URLSearchParams();
+      formData.append('j_username', this.username);
+      formData.append('j_password', this.password);
+
+      const response = await axios.post(
+        `${this.getBaseUrl()}/wps/j_security_check`,
+        formData.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          httpsAgent: httpsAgent,
+          maxRedirects: 0,
+          validateStatus: (status) => status < 500 || status === 302
+        }
+      );
+
+      // Extract LtpaToken2 from Set-Cookie header
+      const cookies = response.headers['set-cookie'];
+      if (cookies) {
+        for (const cookie of cookies) {
+          if (cookie.includes('LtpaToken2=')) {
+            const match = cookie.match(/LtpaToken2=([^;]+)/);
+            if (match) {
+              this.ltpaToken = match[1];
+              // Set expiry to 1 hour from now (tokens usually valid for 2 hours)
+              this.ltpaTokenExpiry = Date.now() + (60 * 60 * 1000);
+              logger.info(`[${reqId}] Successfully obtained LtpaToken2`);
+              return this.ltpaToken;
+            }
+          }
+        }
+      }
+
+      // If j_security_check didn't return token, try Basic Auth to get token
+      logger.info(`[${reqId}] Trying Basic Auth to obtain token...`);
+      const basicAuthResponse = await axios.get(
+        `${this.getBaseUrl()}/wps/mycontenthandler`,
+        {
+          headers: {
+            'Authorization': `Basic ${Buffer.from(`${this.username}:${this.password}`).toString('base64')}`
+          },
+          httpsAgent: httpsAgent,
+          maxRedirects: 5,
+          validateStatus: (status) => status < 500
+        }
+      );
+
+      const basicCookies = basicAuthResponse.headers['set-cookie'];
+      if (basicCookies) {
+        for (const cookie of basicCookies) {
+          if (cookie.includes('LtpaToken2=')) {
+            const match = cookie.match(/LtpaToken2=([^;]+)/);
+            if (match) {
+              this.ltpaToken = match[1];
+              this.ltpaTokenExpiry = Date.now() + (60 * 60 * 1000);
+              logger.info(`[${reqId}] Successfully obtained LtpaToken2 via Basic Auth`);
+              return this.ltpaToken;
+            }
+          }
+        }
+      }
+
+      logger.warn(`[${reqId}] Could not obtain LtpaToken2, falling back to Basic Auth for API calls`);
+      return null;
+    } catch (error) {
+      logger.error(`[${reqId}] Login failed:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get LTPA token (login if needed)
+   */
+  async getLtpaToken() {
+    if (!this.ltpaToken || !this.ltpaTokenExpiry || Date.now() >= this.ltpaTokenExpiry) {
+      await this.login();
+    }
+    return this.ltpaToken;
+  }
+
+  /**
+   * Create axios client with LtpaToken2 authentication
+   * DAM API requires LtpaToken2 cookie (per official docs)
+   */
+  async createClient(providedToken) {
     const headers = {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
     };
 
-    // Always include Basic Auth for server-to-server calls
-    if (this.username && this.password) {
-      const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
-      headers['Authorization'] = `Basic ${auth}`;
-      logger.debug(`Using Basic Auth for user: ${this.username}`);
-    }
-
-    // Additionally include LTPA token if provided (for user context)
-    if (authToken) {
-      headers['Cookie'] = `LtpaToken2=${authToken}`;
+    // Get LTPA token (use provided or fetch new one)
+    const ltpaToken = providedToken || await this.getLtpaToken();
+    
+    if (ltpaToken) {
+      headers['Cookie'] = `LtpaToken2=${ltpaToken}`;
+      logger.debug(`Using LtpaToken2 authentication`);
+    } else {
+      // Fallback to Basic Auth if LTPA token not available
+      if (this.username && this.password) {
+        const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+        headers['Authorization'] = `Basic ${auth}`;
+        logger.debug(`Fallback to Basic Auth for user: ${this.username}`);
+      }
     }
 
     logger.debug(`Creating client for: ${this.getDamApiUrl()}`);
-    logger.debug(`Headers: Authorization=${headers['Authorization'] ? 'Basic ***' : 'NONE'}, Cookie=${authToken ? 'LtpaToken2=***' : 'NONE'}`);
 
     return axios.create({
       baseURL: this.getDamApiUrl(),
@@ -148,7 +255,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: GET /collections`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       const response = await client.get('/collections');
       
       logger.debug(`[${reqId}] Response status: ${response.status}`);
@@ -184,7 +291,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: POST /collections - Creating "${name}"`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       
       // Request body per API spec
       const collectionData = {
@@ -357,7 +464,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: Setting access control on ${collectionId}`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       const aclData = {
         access: [
           { principal: accessControl.administrator || 'wpsadmin', role: 'Administrator' },
@@ -523,7 +630,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: DELETE /collections/${collectionId}/items/${assetId}`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       const response = await client.delete(`/collections/${collectionId}/items/${assetId}`);
 
       logger.debug(`[${reqId}] Response status: ${response.status}`);
@@ -549,7 +656,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: GET /collections/${collectionId}/items/${assetId}`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       const response = await client.get(`/collections/${collectionId}/items/${assetId}`);
 
       logger.debug(`[${reqId}] Response status: ${response.status}`);
@@ -574,7 +681,7 @@ class DxService {
     logger.info(`[${reqId}] DAM API: GET /collections/${collectionId}/items`);
     
     try {
-      const client = this.createClient(authToken);
+      const client = await this.createClient(authToken);
       const params = new URLSearchParams();
       if (options.limit) params.append('limit', options.limit);
       if (options.offset) params.append('offset', options.offset);
@@ -613,26 +720,29 @@ class DxService {
 
   /**
    * Create WCM client with proper authentication
-   * WCM REST API requires Basic Auth or LTPA token
+   * WCM REST API requires LtpaToken2 cookie authentication
    */
-  createWcmClient(authToken) {
+  async createWcmClient(providedToken) {
     const headers = {
       'Accept': 'application/json, application/atom+xml',
       'Content-Type': 'application/json'
     };
 
-    // Always include Basic Auth for server-to-server calls
-    if (this.username && this.password) {
-      const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
-      headers['Authorization'] = `Basic ${auth}`;
-      logger.debug(`WCM Auth: Using Basic Auth for user ${this.username}`);
-    } else {
-      logger.warn('WCM Auth: No credentials configured!');
-    }
+    // Get LTPA token (use provided or fetch new one)
+    const ltpaToken = providedToken || await this.getLtpaToken();
 
-    // Additionally include LTPA token if provided
-    if (authToken) {
-      headers['Cookie'] = `LtpaToken2=${authToken}`;
+    if (ltpaToken) {
+      headers['Cookie'] = `LtpaToken2=${ltpaToken}`;
+      logger.debug(`WCM Auth: Using LtpaToken2 authentication`);
+    } else {
+      // Fallback to Basic Auth if LTPA token not available
+      if (this.username && this.password) {
+        const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+        headers['Authorization'] = `Basic ${auth}`;
+        logger.debug(`WCM Auth: Fallback to Basic Auth for user ${this.username}`);
+      } else {
+        logger.warn('WCM Auth: No credentials configured!');
+      }
     }
 
     const wcmUrl = this.getWcmApiUrl();
@@ -657,7 +767,7 @@ class DxService {
     logger.info(`[${reqId}] WCM URL: ${this.getWcmApiUrl()}/Library`);
     
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get('/Library');
       
       logger.info(`[${reqId}] Response status: ${response.status}`);
@@ -702,7 +812,7 @@ class DxService {
    */
   async getAuthoringTemplates(libraryId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/Library/${libraryId}/AuthoringTemplate`);
       
       if (response.status === 401) {
@@ -725,7 +835,7 @@ class DxService {
    */
   async getAuthoringTemplateDetails(templateId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/AuthoringTemplate/${templateId}`);
       
       if (response.status === 401) {
@@ -748,7 +858,7 @@ class DxService {
    */
   async getPresentationTemplates(libraryId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/Library/${libraryId}/PresentationTemplate`);
       
       if (response.status === 401) {
@@ -771,7 +881,7 @@ class DxService {
    */
   async getWorkflows(libraryId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/Library/${libraryId}/Workflow`);
       
       if (response.status === 401) {
@@ -794,7 +904,7 @@ class DxService {
    */
   async getWorkflowDetails(workflowId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/Workflow/${workflowId}`);
       
       if (response.status === 401) {
@@ -817,7 +927,7 @@ class DxService {
    */
   async createContent(contentData, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       
       const wcmContent = {
         name: contentData.title,
@@ -852,7 +962,7 @@ class DxService {
    */
   async executeWorkflowAction(contentId, action, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       
       const response = await client.post(`/Content/${contentId}/workflow-action`, { action });
       
@@ -877,7 +987,7 @@ class DxService {
    */
   async publishContent(contentId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       
       const response = await client.post(`/Content/${contentId}/publish`);
       
@@ -902,7 +1012,7 @@ class DxService {
    */
   async getContentPreview(contentId, presentationTemplateId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       
       let url = `/Content/${contentId}/render`;
       if (presentationTemplateId) {
@@ -931,7 +1041,7 @@ class DxService {
    */
   async getContent(contentId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.get(`/Content/${contentId}`);
       
       if (response.status === 401) {
@@ -955,7 +1065,7 @@ class DxService {
    */
   async moveToNextWorkflowStage(contentId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.post(`/item/${contentId}/next-stage`);
       
       if (response.status === 401) {
@@ -980,7 +1090,7 @@ class DxService {
    */
   async approveContentInWorkflow(contentId, authToken) {
     try {
-      const client = this.createWcmClient(authToken);
+      const client = await this.createWcmClient(authToken);
       const response = await client.post(`/item/${contentId}/approve`);
       
       if (response.status === 401) {
@@ -1138,7 +1248,7 @@ class DxService {
     // Test WCM API
     try {
       logger.info(`[${reqId}] Testing WCM API at ${this.getWcmApiUrl()}`);
-      const client = this.createWcmClient();
+      const client = await this.createWcmClient();
       const response = await client.get('/Library');
       
       if (response.status === 200) {
