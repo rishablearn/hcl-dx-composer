@@ -143,13 +143,69 @@ const requireAdmin = requireRole('wpsadmin');
 
 /**
  * Check if user can author content
+ * For local LDAP mode, also check direct group membership
  */
-const requireAuthor = requireRole('dxcontentauthors', 'wpsadmin');
+const requireAuthor = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const userRoles = req.user.roles || [];
+  const ldapGroups = req.user.ldap_groups || [];
+  
+  // Check app roles
+  const hasRole = userRoles.includes('dxcontentauthors') || userRoles.includes('wpsadmin');
+  
+  // Also check direct LDAP group membership for local mode
+  const hasGroup = ldapGroups.some(g => 
+    g.toLowerCase().includes('authors') || 
+    g.toLowerCase().includes('admins') ||
+    g.toLowerCase().includes('publishers') ||
+    g.toLowerCase().includes('allusers')
+  );
+
+  if (!hasRole && !hasGroup) {
+    logger.warn(`Author access denied for ${req.user.username}. Roles: ${userRoles.join(', ')}, Groups: ${ldapGroups.join(', ')}`);
+    return res.status(403).json({ 
+      error: 'Access denied',
+      message: 'Author role required'
+    });
+  }
+
+  next();
+};
 
 /**
  * Check if user can approve content
+ * For local LDAP mode, also check direct group membership
  */
-const requireApprover = requireRole('dxcontentapprovers', 'wpsadmin');
+const requireApprover = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const userRoles = req.user.roles || [];
+  const ldapGroups = req.user.ldap_groups || [];
+  
+  // Check app roles
+  const hasRole = userRoles.includes('dxcontentapprovers') || userRoles.includes('wpsadmin');
+  
+  // Also check direct LDAP group membership for local mode
+  const hasGroup = ldapGroups.some(g => 
+    g.toLowerCase().includes('reviewers') || 
+    g.toLowerCase().includes('admins')
+  );
+
+  if (!hasRole && !hasGroup) {
+    logger.warn(`Approver access denied for ${req.user.username}. Roles: ${userRoles.join(', ')}, Groups: ${ldapGroups.join(', ')}`);
+    return res.status(403).json({ 
+      error: 'Access denied',
+      message: 'Approver role required'
+    });
+  }
+
+  next();
+};
 
 /**
  * Generate JWT token for user
