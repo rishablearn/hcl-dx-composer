@@ -234,7 +234,7 @@ class LdapService {
               logger.error('User auth client error:', err);
             });
             
-            userClient.bind(userDN, password, (authErr) => {
+            userClient.bind(userDN, password, async (authErr) => {
               userClient.unbind();
               client.unbind();
               
@@ -246,6 +246,17 @@ class LdapService {
               }
 
               logger.info(`User authenticated successfully: ${username}`);
+              
+              // Fetch user's group memberships (OpenLDAP doesn't auto-populate memberOf)
+              try {
+                const groups = await this.getUserGroups(userDN);
+                userData.memberOf = groups.map(g => g.dn.toString ? g.dn.toString() : String(g.dn));
+                logger.debug(`User groups: ${JSON.stringify(userData.memberOf)}`);
+              } catch (groupErr) {
+                logger.warn(`Could not fetch user groups: ${groupErr.message}`);
+                // Continue without groups - user can still authenticate
+              }
+              
               resolve(userData);
             });
           });
@@ -273,9 +284,11 @@ class LdapService {
           return reject(new Error('LDAP service authentication failed'));
         }
 
+        // OpenLDAP uses groupOfNames, AD uses group
+        const groupObjectClass = this.ldapMode === 'local' ? 'groupOfNames' : 'group';
         const searchFilter = filter 
-          ? `(&(objectClass=group)(cn=*${filter}*))` 
-          : '(objectClass=group)';
+          ? `(&(objectClass=${groupObjectClass})(cn=*${filter}*))` 
+          : `(objectClass=${groupObjectClass})`;
         
         const searchOptions = {
           filter: searchFilter,
