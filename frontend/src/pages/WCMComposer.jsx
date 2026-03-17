@@ -324,16 +324,39 @@ export default function WCMComposer() {
     setLoading(true);
     
     try {
-      // Backend returns WCM API v2 format: { items: [...], total }
-      const [atResponse, wfResponse, ptResponse] = await Promise.all([
+      // Use Promise.allSettled so partial failures don't block other results
+      const [atResult, wfResult, ptResult] = await Promise.allSettled([
         wcmApi.getAuthoringTemplates(libId),
         wcmApi.getWorkflows(libId),
         wcmApi.getPresentationTemplates(libId),
       ]);
       
-      setAuthoringTemplates(atResponse.data?.items || []);
-      setWorkflows(wfResponse.data?.items || []);
-      setPresentationTemplates(ptResponse.data?.items || []);
+      if (atResult.status === 'fulfilled') {
+        const items = atResult.value.data?.items || [];
+        console.log(`[WCM] Loaded ${items.length} authoring templates (source: ${atResult.value.data?.source || 'unknown'})`);
+        setAuthoringTemplates(items);
+      } else {
+        console.error('Failed to load authoring templates:', atResult.reason);
+        setAuthoringTemplates([]);
+      }
+      
+      if (wfResult.status === 'fulfilled') {
+        const items = wfResult.value.data?.items || [];
+        console.log(`[WCM] Loaded ${items.length} workflows (source: ${wfResult.value.data?.source || 'unknown'})`);
+        setWorkflows(items);
+      } else {
+        console.error('Failed to load workflows:', wfResult.reason);
+        setWorkflows([]);
+      }
+      
+      if (ptResult.status === 'fulfilled') {
+        const items = ptResult.value.data?.items || [];
+        console.log(`[WCM] Loaded ${items.length} presentation templates (source: ${ptResult.value.data?.source || 'unknown'})`);
+        setPresentationTemplates(items);
+      } else {
+        console.error('Failed to load presentation templates:', ptResult.reason);
+        setPresentationTemplates([]);
+      }
     } catch (error) {
       console.error('Failed to load templates/workflows:', error);
     } finally {
