@@ -25,15 +25,34 @@ const logger = winston.createLogger({
   ]
 });
 
-// Add file transport in production
+// Add file transport in production (use app directory for Docker compatibility)
 if (process.env.NODE_ENV === 'production') {
-  logger.add(new winston.transports.File({ 
-    filename: '/var/log/hcl-dx-composer/error.log', 
-    level: 'error' 
-  }));
-  logger.add(new winston.transports.File({ 
-    filename: '/var/log/hcl-dx-composer/combined.log' 
-  }));
+  const logDir = process.env.LOG_PATH || '/app/logs';
+  const fs = require('fs');
+  
+  // Create log directory if it doesn't exist
+  if (!fs.existsSync(logDir)) {
+    try {
+      fs.mkdirSync(logDir, { recursive: true });
+    } catch (err) {
+      console.warn(`Could not create log directory ${logDir}, using console only`);
+    }
+  }
+  
+  // Only add file transports if directory is writable
+  if (fs.existsSync(logDir)) {
+    try {
+      logger.add(new winston.transports.File({ 
+        filename: `${logDir}/error.log`, 
+        level: 'error' 
+      }));
+      logger.add(new winston.transports.File({ 
+        filename: `${logDir}/combined.log` 
+      }));
+    } catch (err) {
+      console.warn('Could not add file transports, using console only');
+    }
+  }
 }
 
 module.exports = logger;
