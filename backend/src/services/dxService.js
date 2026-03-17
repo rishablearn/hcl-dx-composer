@@ -4,11 +4,17 @@
  */
 
 const axios = require('axios');
+const https = require('https');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../config/logger');
 const db = require('../config/database');
+
+// Create HTTPS agent that allows self-signed certificates (common in enterprise DX deployments)
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false
+});
 
 /**
  * HCL DX Service - Handles API communication with HCL Digital Experience
@@ -78,20 +84,26 @@ class DxService {
       'Content-Type': 'application/json'
     };
 
-    if (authToken) {
-      headers['Cookie'] = `LtpaToken2=${authToken}`;
-    } else if (this.username && this.password) {
-      // Use Basic Auth
+    // Always include Basic Auth for server-to-server calls
+    if (this.username && this.password) {
       const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
       headers['Authorization'] = `Basic ${auth}`;
+      logger.debug(`Using Basic Auth for user: ${this.username}`);
+    }
+
+    // Additionally include LTPA token if provided (for user context)
+    if (authToken) {
+      headers['Cookie'] = `LtpaToken2=${authToken}`;
     }
 
     logger.debug(`Creating client for: ${this.getDamApiUrl()}`);
+    logger.debug(`Headers: Authorization=${headers['Authorization'] ? 'Basic ***' : 'NONE'}, Cookie=${authToken ? 'LtpaToken2=***' : 'NONE'}`);
 
     return axios.create({
       baseURL: this.getDamApiUrl(),
       headers,
       timeout: 60000,
+      httpsAgent: httpsAgent,
       validateStatus: (status) => status < 500
     });
   }
@@ -269,11 +281,15 @@ class DxService {
         'Accept': 'application/json'
       };
 
-      if (authToken) {
-        headers['Cookie'] = `LtpaToken2=${authToken}`;
-      } else if (this.username && this.password) {
+      // Always include Basic Auth
+      if (this.username && this.password) {
         const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
         headers['Authorization'] = `Basic ${auth}`;
+      }
+
+      // Additionally include LTPA token if provided
+      if (authToken) {
+        headers['Cookie'] = `LtpaToken2=${authToken}`;
       }
 
       const url = `${this.getDamApiUrl()}/collections/${collectionId}/items`;
@@ -283,7 +299,8 @@ class DxService {
         headers, 
         timeout: 120000,
         maxContentLength: Infinity,
-        maxBodyLength: Infinity
+        maxBodyLength: Infinity,
+        httpsAgent: httpsAgent
       });
 
       logger.debug(`[${reqId}] Response status: ${response.status}`);
@@ -584,12 +601,61 @@ class DxService {
   // ===========================================================================
 
   /**
+   * Get WCM API URL
+   */
+  getWcmApiUrl() {
+    // WCM REST API default path
+    const wcmPath = this.wcmBaseUrl || '/wps/mycontenthandler/wcmrest';
+    return `${this.getBaseUrl()}${wcmPath}`;
+  }
+
+  /**
+   * Create WCM client with proper authentication
+   */
+  createWcmClient(authToken) {
+    const headers = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    };
+
+    // Always include Basic Auth
+    if (this.username && this.password) {
+      const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${auth}`;
+    }
+
+    // Additionally include LTPA token if provided
+    if (authToken) {
+      headers['Cookie'] = `LtpaToken2=${authToken}`;
+    }
+
+    logger.debug(`Creating WCM client for: ${this.getWcmApiUrl()}`);
+
+    return axios.create({
+      baseURL: this.getWcmApiUrl(),
+      headers,
+      timeout: 60000,
+      httpsAgent: httpsAgent,
+      validateStatus: (status) => status < 500
+    });
+  }
+
+  /**
    * Get all WCM libraries
    */
   async getLibraries(authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] WCM API: GET /Library`);
+    
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmBaseUrl}/Library`);
+      const client = this.createWcmClient(authToken);
+      const response = await client.get('/Library');
+      
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get libraries: ${response.status}`);
@@ -597,7 +663,7 @@ class DxService {
       
       return response.data;
     } catch (error) {
-      logger.error('Error fetching WCM libraries:', error.message);
+      logger.error(`[${reqId}] Error fetching WCM libraries:`, error.message);
       throw error;
     }
   }
@@ -607,10 +673,12 @@ class DxService {
    */
   async getAuthoringTemplates(libraryId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(
-        `${this.wcmBaseUrl}/Library/${libraryId}/AuthoringTemplate`
-      );
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/Library/${libraryId}/AuthoringTemplate`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get authoring templates: ${response.status}`);
@@ -628,8 +696,12 @@ class DxService {
    */
   async getAuthoringTemplateDetails(templateId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmBaseUrl}/AuthoringTemplate/${templateId}`);
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/AuthoringTemplate/${templateId}`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get template details: ${response.status}`);
@@ -647,10 +719,12 @@ class DxService {
    */
   async getPresentationTemplates(libraryId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(
-        `${this.wcmBaseUrl}/Library/${libraryId}/PresentationTemplate`
-      );
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/Library/${libraryId}/PresentationTemplate`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get presentation templates: ${response.status}`);
@@ -668,10 +742,12 @@ class DxService {
    */
   async getWorkflows(libraryId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(
-        `${this.wcmBaseUrl}/Library/${libraryId}/Workflow`
-      );
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/Library/${libraryId}/Workflow`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get workflows: ${response.status}`);
@@ -689,8 +765,12 @@ class DxService {
    */
   async getWorkflowDetails(workflowId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmBaseUrl}/Workflow/${workflowId}`);
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/Workflow/${workflowId}`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get workflow details: ${response.status}`);
@@ -708,7 +788,7 @@ class DxService {
    */
   async createContent(contentData, authToken) {
     try {
-      const client = this.createClient(authToken);
+      const client = this.createWcmClient(authToken);
       
       const wcmContent = {
         name: contentData.title,
@@ -720,7 +800,11 @@ class DxService {
         workflow: contentData.workflowId ? { id: contentData.workflowId } : undefined
       };
 
-      const response = await client.post(`${this.wcmBaseUrl}/Content`, wcmContent);
+      const response = await client.post('/Content', wcmContent);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 201 && response.status !== 200) {
         throw new Error(`Failed to create content: ${response.status}`);
@@ -739,12 +823,13 @@ class DxService {
    */
   async executeWorkflowAction(contentId, action, authToken) {
     try {
-      const client = this.createClient(authToken);
+      const client = this.createWcmClient(authToken);
       
-      const response = await client.post(
-        `${this.wcmBaseUrl}/Content/${contentId}/workflow-action`,
-        { action }
-      );
+      const response = await client.post(`/Content/${contentId}/workflow-action`, { action });
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to execute workflow action: ${response.status}`);
@@ -763,11 +848,13 @@ class DxService {
    */
   async publishContent(contentId, authToken) {
     try {
-      const client = this.createClient(authToken);
+      const client = this.createWcmClient(authToken);
       
-      const response = await client.post(
-        `${this.wcmBaseUrl}/Content/${contentId}/publish`
-      );
+      const response = await client.post(`/Content/${contentId}/publish`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to publish content: ${response.status}`);
@@ -786,14 +873,18 @@ class DxService {
    */
   async getContentPreview(contentId, presentationTemplateId, authToken) {
     try {
-      const client = this.createClient(authToken);
+      const client = this.createWcmClient(authToken);
       
-      let url = `${this.wcmBaseUrl}/Content/${contentId}/render`;
+      let url = `/Content/${contentId}/render`;
       if (presentationTemplateId) {
         url += `?presentationTemplateId=${presentationTemplateId}`;
       }
       
       const response = await client.get(url);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get content preview: ${response.status}`);
@@ -811,8 +902,12 @@ class DxService {
    */
   async getContent(contentId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmBaseUrl}/Content/${contentId}`);
+      const client = this.createWcmClient(authToken);
+      const response = await client.get(`/Content/${contentId}`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to get content: ${response.status}`);
@@ -831,10 +926,12 @@ class DxService {
    */
   async moveToNextWorkflowStage(contentId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.post(
-        `${this.wcmBaseUrl}/item/${contentId}/next-stage`
-      );
+      const client = this.createWcmClient(authToken);
+      const response = await client.post(`/item/${contentId}/next-stage`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to move to next stage: ${response.status}`);
@@ -854,10 +951,12 @@ class DxService {
    */
   async approveContentInWorkflow(contentId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const response = await client.post(
-        `${this.wcmBaseUrl}/item/${contentId}/approve`
-      );
+      const client = this.createWcmClient(authToken);
+      const response = await client.post(`/item/${contentId}/approve`);
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 200) {
         throw new Error(`Failed to approve in workflow: ${response.status}`);
@@ -921,17 +1020,26 @@ class DxService {
         'Accept': 'application/atom+xml'
       };
 
+      // Always include Basic Auth
+      if (this.username && this.password) {
+        const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+        headers['Authorization'] = `Basic ${auth}`;
+      }
+
+      // Additionally include LTPA token if provided
       if (authToken) {
         headers['Cookie'] = `LtpaToken2=${authToken}`;
-      } else if (this.apiKey) {
-        headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
 
       const response = await axios.post(
-        `${this.wcmBaseUrl}/Content`,
+        `${this.getWcmApiUrl()}/Content`,
         xmlPayload,
-        { headers, timeout: 30000 }
+        { headers, timeout: 30000, httpsAgent: httpsAgent }
       );
+      
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
       
       if (response.status !== 201 && response.status !== 200) {
         throw new Error(`Failed to create content: ${response.status}`);
