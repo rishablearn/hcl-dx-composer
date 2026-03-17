@@ -43,6 +43,11 @@ set -e
 #-------------------------------------------------------------------------------
 SKIP_PROMPTS=false
 INTERACTIVE=true
+RECONFIGURE=false
+ENV_FILE=".env"
+
+# Track what's already configured
+declare -A EXISTING_CONFIG
 
 #-------------------------------------------------------------------------------
 # Parse Command Line Arguments
@@ -53,6 +58,10 @@ parse_args() {
             --skip-prompts)
                 SKIP_PROMPTS=true
                 INTERACTIVE=false
+                shift
+                ;;
+            --reconfigure)
+                RECONFIGURE=true
                 shift
                 ;;
             --help|-h)
@@ -69,6 +78,55 @@ parse_args() {
 }
 
 #-------------------------------------------------------------------------------
+# Load existing .env configuration
+# Reads current values so we can skip already-configured items
+#-------------------------------------------------------------------------------
+load_existing_config() {
+    if [ -f "$ENV_FILE" ]; then
+        while IFS='=' read -r key value || [ -n "$key" ]; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            
+            # Remove leading/trailing whitespace
+            key=$(echo "$key" | xargs)
+            value=$(echo "$value" | xargs)
+            
+            # Store non-empty, non-placeholder values
+            if [ -n "$value" ] && \
+               [ "$value" != "your-dx-server.domain.com" ] && \
+               [ "$value" != "your_dx_password" ] && \
+               [ "$value" != "your_ldap_password" ] && \
+               [ "$value" != "change_this_secret" ] && \
+               [[ "$value" != *"your-"* ]] && \
+               [[ "$value" != *"change_"* ]]; then
+                EXISTING_CONFIG["$key"]="$value"
+            fi
+        done < "$ENV_FILE"
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Check if a config key is already configured
+# Usage: is_configured "KEY_NAME"
+# Returns 0 (true) if configured, 1 (false) if not
+#-------------------------------------------------------------------------------
+is_configured() {
+    local key="$1"
+    [ -n "${EXISTING_CONFIG[$key]:-}" ]
+}
+
+#-------------------------------------------------------------------------------
+# Get existing config value or default
+# Usage: get_config "KEY_NAME" "default_value"
+#-------------------------------------------------------------------------------
+get_config() {
+    local key="$1"
+    local default="$2"
+    echo "${EXISTING_CONFIG[$key]:-$default}"
+}
+
+#-------------------------------------------------------------------------------
 # Show Help Message
 #-------------------------------------------------------------------------------
 show_help() {
@@ -79,11 +137,16 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --skip-prompts    Skip interactive prompts and use defaults"
+    echo "  --reconfigure     Force reconfiguration of all settings"
     echo "  --help, -h        Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/setup.sh                  # Interactive setup"
+    echo "  ./scripts/setup.sh                  # Smart setup (only asks for unconfigured items)"
+    echo "  ./scripts/setup.sh --reconfigure    # Reconfigure all settings"
     echo "  ./scripts/setup.sh --skip-prompts   # Quick setup with defaults"
+    echo ""
+    echo "The script automatically detects existing configuration and only prompts"
+    echo "for items that haven't been configured yet."
     echo ""
     echo "Documentation: docs/HCL-DX-INTEGRATION.md"
     echo ""
@@ -454,32 +517,122 @@ generate_secret() {
     fi
 }
 
-if [ -f ".env" ]; then
-    print_warning ".env file already exists"
-    if prompt_yes_no "Do you want to reconfigure it?" "N"; then
-        cp .env ".env.backup.$(date +%Y%m%d_%H%M%S)"
-        print_info "Backup saved to .env.backup.*"
-        rm .env
-    else
-        print_success "Keeping existing .env file"
-    fi
+# Load existing configuration
+load_existing_config
+
+# Count configured vs unconfigured items
+CONFIGURED_COUNT=0
+UNCONFIGURED_SECTIONS=""
+
+# Check what's configured
+if is_configured "POSTGRES_DB" && is_configured "POSTGRES_PASSWORD"; then
+    ((CONFIGURED_COUNT++))
+else
+    UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}Database, "
 fi
 
-if [ ! -f ".env" ]; then
+if is_configured "HCL_DX_HOST" && is_configured "HCL_DX_PASSWORD" && \
+   [ "$(get_config HCL_DX_HOST '')" != "your-dx-server.domain.com" ]; then
+    ((CONFIGURED_COUNT++))
+else
+    UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}HCL DX, "
+fi
+
+if is_configured "LDAP_URL"; then
+    ((CONFIGURED_COUNT++))
+else
+    UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}LDAP, "
+fi
+
+if is_configured "AI_IMAGE_PROVIDER"; then
+    ((CONFIGURED_COUNT++))
+fi
+
+# Remove trailing comma
+UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS%, }"
+
+if [ -f "$ENV_FILE" ]; then
     echo ""
-    print_info "We'll now configure your environment step by step."
-    print_info "Press Enter to accept default values shown in [brackets]."
+    print_info "Existing configuration detected!"
     echo ""
     
-    #---------------------------------------------------------------------------
-    # Database Configuration
-    #---------------------------------------------------------------------------
-    print_step "Database Configuration"
+    if [ -n "$UNCONFIGURED_SECTIONS" ]; then
+        echo -e "  ${YELLOW}Needs configuration:${NC} $UNCONFIGURED_SECTIONS"
+    fi
+    echo -e "  ${GREEN}Already configured:${NC} $CONFIGURED_COUNT sections"
+    echo ""
+    
+    if [ "$RECONFIGURE" = true ]; then
+        print_warning "Reconfigure mode: Will ask all questions"
+        cp "$ENV_FILE" ".env.backup.$(date +%Y%m%d_%H%M%S)"
+        print_info "Backup saved to .env.backup.*"
+    else
+        print_info "Smart mode: Only asking for unconfigured items"
+        print_info "Use --reconfigure to change existing settings"
+        echo ""
+    fi
+else
+    print_info "No existing configuration found - starting fresh setup"
+    RECONFIGURE=true
+fi
+
+echo ""
+print_info "Press Enter to accept default values shown in [brackets]."
+echo ""
+
+# Helper function: prompt only if not configured or reconfiguring
+# Usage: smart_prompt "KEY" "Question" "default" variable_name
+smart_prompt() {
+    local key="$1"
+    local question="$2"
+    local default="$3"
+    local var_name="$4"
+    
+    if [ "$RECONFIGURE" = true ] || ! is_configured "$key"; then
+        # Get existing value as default if available
+        local existing=$(get_config "$key" "$default")
+        prompt_input "$question" "$existing" "$var_name"
+    else
+        # Use existing value
+        eval "$var_name=\"${EXISTING_CONFIG[$key]}\""
+        echo -e "  ${GREEN}✓${NC} $question: ${CYAN}${EXISTING_CONFIG[$key]}${NC} (existing)"
+    fi
+}
+
+# Helper function: prompt secret only if not configured or reconfiguring
+smart_prompt_secret() {
+    local key="$1"
+    local question="$2"
+    local var_name="$3"
+    
+    if [ "$RECONFIGURE" = true ] || ! is_configured "$key"; then
+        prompt_secret "$question" "$var_name"
+    else
+        eval "$var_name=\"${EXISTING_CONFIG[$key]}\""
+        echo -e "  ${GREEN}✓${NC} $question: ${CYAN}***configured***${NC} (existing)"
+    fi
+}
+
+#---------------------------------------------------------------------------
+# Database Configuration
+#---------------------------------------------------------------------------
+print_step "Database Configuration"
+
+if is_configured "POSTGRES_DB" && is_configured "POSTGRES_PASSWORD" && [ "$RECONFIGURE" != true ]; then
+    print_success "Database already configured"
+    POSTGRES_DB=$(get_config "POSTGRES_DB" "hcl_dx_staging")
+    POSTGRES_USER=$(get_config "POSTGRES_USER" "hcldx")
+    DB_PASSWORD=$(get_config "POSTGRES_PASSWORD" "")
+    POSTGRES_PORT=$(get_config "POSTGRES_PORT" "5432")
+    echo -e "  Database: ${CYAN}${POSTGRES_DB}${NC}"
+    echo -e "  User: ${CYAN}${POSTGRES_USER}${NC}"
+    echo -e "  Port: ${CYAN}${POSTGRES_PORT}${NC}"
+else
     print_info "PostgreSQL database settings for storing application data."
     echo ""
     
-    prompt_input "Database name" "hcl_dx_staging" POSTGRES_DB
-    prompt_input "Database user" "hcldx" POSTGRES_USER
+    smart_prompt "POSTGRES_DB" "Database name" "hcl_dx_staging" POSTGRES_DB
+    smart_prompt "POSTGRES_USER" "Database user" "hcldx" POSTGRES_USER
     DB_PASSWORD=$(generate_secret 16)
     if [ "$INTERACTIVE" = true ]; then
         echo -e "Database password: ${YELLOW}[auto-generated]${NC}"
@@ -489,76 +642,93 @@ if [ ! -f ".env" ]; then
             prompt_secret "Enter database password" DB_PASSWORD
         fi
     fi
-    prompt_input "Database port" "5432" POSTGRES_PORT
-    
-    #---------------------------------------------------------------------------
-    # Backend Configuration
-    #---------------------------------------------------------------------------
-    print_step "Backend API Configuration"
+    smart_prompt "POSTGRES_PORT" "Database port" "5432" POSTGRES_PORT
+fi
+
+#---------------------------------------------------------------------------
+# Backend Configuration
+#---------------------------------------------------------------------------
+print_step "Backend API Configuration"
+
+if is_configured "BACKEND_PORT" && is_configured "JWT_SECRET" && [ "$RECONFIGURE" != true ]; then
+    print_success "Backend already configured"
+    BACKEND_PORT=$(get_config "BACKEND_PORT" "3001")
+    JWT_SECRET=$(get_config "JWT_SECRET" "")
+    SESSION_SECRET=$(get_config "SESSION_SECRET" "")
+    echo -e "  Port: ${CYAN}${BACKEND_PORT}${NC}"
+else
     print_info "Settings for the Node.js backend server."
     echo ""
-    
-    prompt_input "Backend port" "3001" BACKEND_PORT
+    smart_prompt "BACKEND_PORT" "Backend port" "3001" BACKEND_PORT
     JWT_SECRET=$(generate_secret 32)
     SESSION_SECRET=$(generate_secret 32)
     print_success "JWT and session secrets auto-generated"
-    
-    #---------------------------------------------------------------------------
-    # Hostname Configuration
-    #---------------------------------------------------------------------------
-    print_step "Server Hostname Configuration"
+fi
+
+#---------------------------------------------------------------------------
+# Hostname Configuration
+#---------------------------------------------------------------------------
+print_step "Server Hostname Configuration"
+
+if is_configured "APP_HOSTNAME" && [ "$RECONFIGURE" != true ]; then
+    APP_HOSTNAME=$(get_config "APP_HOSTNAME" "localhost")
+    print_success "Hostname already configured: ${APP_HOSTNAME}"
+else
     print_info "Enter the hostname or IP address to access this application."
     echo ""
     
     echo -e "${CYAN}Hostname/IP Address:${NC}"
-    echo ""
-    echo "  Examples:"
-    echo -e "    - ${YELLOW}myserver${NC} (short hostname)"
-    echo -e "    - ${YELLOW}myserver.local${NC} (with domain)"
-    echo -e "    - ${YELLOW}192.168.1.100${NC} (IP address)"
-    echo -e "    - ${YELLOW}localhost${NC} (local only)"
-    echo ""
-    echo "  Tips:"
-    echo "    - Use IP address for most reliable access"
-    echo "    - Use hostname for SSL certificates"
-    echo "    - Run 'hostname' or 'ip addr' to find your values"
+    echo "  Examples: myserver, myserver.local, 192.168.1.100, localhost"
     echo ""
     
-    # Ask user directly - no auto-detection
-    read -p "Enter server hostname or IP [localhost]: " APP_HOSTNAME
-    APP_HOSTNAME="${APP_HOSTNAME:-localhost}"
-    
-    # Clean up - remove spaces and newlines
+    existing_host=$(get_config "APP_HOSTNAME" "localhost")
+    read -p "Enter server hostname or IP [$existing_host]: " APP_HOSTNAME
+    APP_HOSTNAME="${APP_HOSTNAME:-$existing_host}"
     APP_HOSTNAME=$(echo "$APP_HOSTNAME" | tr -d '\n\r' | xargs)
-    
-    # Validate not empty
-    if [ -z "$APP_HOSTNAME" ]; then
-        APP_HOSTNAME="localhost"
-    fi
+    [ -z "$APP_HOSTNAME" ] && APP_HOSTNAME="localhost"
     
     print_success "Hostname configured: ${APP_HOSTNAME}"
-    echo ""
-    echo -e "  Access URLs will be:"
-    echo -e "    HTTP:  ${BLUE}http://${APP_HOSTNAME}:3000${NC}"
-    echo -e "    HTTPS: ${BLUE}https://${APP_HOSTNAME}:443${NC} (if SSL enabled)"
-    
-    #---------------------------------------------------------------------------
-    # Frontend Configuration
-    #---------------------------------------------------------------------------
-    print_step "Frontend Configuration"
+fi
+
+#---------------------------------------------------------------------------
+# Frontend Configuration
+#---------------------------------------------------------------------------
+print_step "Frontend Configuration"
+
+if is_configured "FRONTEND_PORT" && [ "$RECONFIGURE" != true ]; then
+    FRONTEND_PORT=$(get_config "FRONTEND_PORT" "3000")
+    print_success "Frontend already configured on port ${FRONTEND_PORT}"
+else
     print_info "Settings for the React frontend application."
     echo ""
+    smart_prompt "FRONTEND_PORT" "Frontend port" "3000" FRONTEND_PORT
+fi
+
+# API URL uses relative path - nginx proxies to backend
+VITE_API_BASE_URL="/api"
+
+#---------------------------------------------------------------------------
+# LDAP Configuration (API Integration)
+#---------------------------------------------------------------------------
+print_step "LDAP Authentication Configuration"
+
+if is_configured "LDAP_URL" && [ "$RECONFIGURE" != true ]; then
+    LDAP_MODE=$(get_config "LDAP_MODE" "local")
+    LDAP_URL=$(get_config "LDAP_URL" "")
+    LDAP_BASE_DN=$(get_config "LDAP_BASE_DN" "")
+    LDAP_BIND_DN=$(get_config "LDAP_BIND_DN" "")
+    LDAP_BIND_PASSWORD=$(get_config "LDAP_BIND_PASSWORD" "")
+    LDAP_USER_SEARCH_BASE=$(get_config "LDAP_USER_SEARCH_BASE" "")
+    LDAP_GROUP_SEARCH_BASE=$(get_config "LDAP_GROUP_SEARCH_BASE" "")
+    LDAP_ADMIN_PASSWORD=$(get_config "LDAP_ADMIN_PASSWORD" "")
+    LDAP_CONFIG_PASSWORD=$(get_config "LDAP_CONFIG_PASSWORD" "")
+    LDAP_ORGANISATION=$(get_config "LDAP_ORGANISATION" "")
+    LDAP_DOMAIN=$(get_config "LDAP_DOMAIN" "")
     
-    prompt_input "Frontend port" "3000" FRONTEND_PORT
-    
-    # API URL uses relative path - nginx proxies to backend
-    VITE_API_BASE_URL="/api"
-    print_info "API requests will be proxied through nginx at /api"
-    
-    #---------------------------------------------------------------------------
-    # LDAP Configuration (API Integration)
-    #---------------------------------------------------------------------------
-    print_step "LDAP Authentication Configuration"
+    print_success "LDAP already configured (${LDAP_MODE} mode)"
+    echo -e "  URL: ${CYAN}${LDAP_URL}${NC}"
+    CONFIGURE_LDAP=false
+else
     echo ""
     print_info "All authentication happens via API. Choose your LDAP mode:"
     echo ""
@@ -701,20 +871,32 @@ if [ ! -f ".env" ]; then
         LDAP_DOMAIN="hcldx.local"
         print_info "Using Local OpenLDAP (default). Run setup again to change."
     fi
+fi  # End of LDAP configuration else block
+
+#---------------------------------------------------------------------------
+# HCL DX API Configuration (Pure API Integration)
+#---------------------------------------------------------------------------
+print_step "HCL Digital Experience API Configuration"
+
+# Check if HCL DX is already properly configured
+DX_HOST_VAL=$(get_config "HCL_DX_HOST" "")
+if [ -n "$DX_HOST_VAL" ] && [ "$DX_HOST_VAL" != "your-dx-server.domain.com" ] && [ "$RECONFIGURE" != true ]; then
+    HCL_DX_HOST=$(get_config "HCL_DX_HOST" "")
+    HCL_DX_PORT=$(get_config "HCL_DX_PORT" "443")
+    HCL_DX_PROTOCOL=$(get_config "HCL_DX_PROTOCOL" "https")
+    HCL_DX_USERNAME=$(get_config "HCL_DX_USERNAME" "wpsadmin")
+    HCL_DX_PASSWORD=$(get_config "HCL_DX_PASSWORD" "")
+    HCL_DX_WCM_LIBRARY=$(get_config "HCL_DX_WCM_LIBRARY" "Web Content")
+    HCL_DX_DAM_BASE_URL=$(get_config "HCL_DX_DAM_BASE_URL" "")
+    HCL_DX_WCM_BASE_URL=$(get_config "HCL_DX_WCM_BASE_URL" "")
     
-    #---------------------------------------------------------------------------
-    # HCL DX API Configuration (Pure API Integration)
-    #---------------------------------------------------------------------------
-    print_step "HCL Digital Experience API Configuration"
+    print_success "HCL DX already configured"
+    echo -e "  Host: ${CYAN}${HCL_DX_HOST}:${HCL_DX_PORT}${NC}"
+    echo -e "  Username: ${CYAN}${HCL_DX_USERNAME}${NC}"
+    CONFIGURE_DX=false
+else
     echo ""
     print_info "This application integrates with HCL DX using REST APIs only."
-    print_info "No direct server access is required - just API credentials."
-    echo ""
-    echo -e "${CYAN}You will need from your HCL DX administrator:${NC}"
-    echo "  • API Key or credentials for authentication"
-    echo "  • HCL DX server hostname"
-    echo "  • WCM Library name for content storage"
-    echo "  • Confirmation that CORS is enabled for your domain"
     echo ""
     
     CONFIGURE_DX=false
@@ -737,9 +919,8 @@ if [ ! -f ".env" ]; then
         echo ""
         echo -e "${YELLOW}── Service Account Authentication ──${NC}"
         print_info "HCL DX uses Basic Authentication (username/password)"
-        print_info "Request a service account from your HCL DX administrator"
         echo ""
-        prompt_input "HCL DX Username (service account)" "wcmservice" HCL_DX_USERNAME
+        prompt_input "HCL DX Username (service account)" "wpsadmin" HCL_DX_USERNAME
         prompt_secret "HCL DX Password" HCL_DX_PASSWORD
         HCL_DX_PASSWORD="${HCL_DX_PASSWORD:-your_dx_password}"
         
@@ -774,26 +955,31 @@ if [ ! -f ".env" ]; then
         print_warning "HCL DX API not configured. Update .env file later."
         print_info "See docs/HCL-DX-INTEGRATION.md for API configuration guide."
     fi
-    
-    #---------------------------------------------------------------------------
-    # AI Image Generation Configuration (Optional)
-    #---------------------------------------------------------------------------
-    print_step "AI Image Generation (Optional)"
+fi  # End of HCL DX configuration else block
+
+#---------------------------------------------------------------------------
+# AI Image Generation Configuration (Optional)
+#---------------------------------------------------------------------------
+print_step "AI Image Generation (Optional)"
+
+# Initialize AI provider variables with existing values or defaults
+AI_IMAGE_PROVIDER=$(get_config "AI_IMAGE_PROVIDER" "pollinations")
+OPENAI_API_KEY=$(get_config "OPENAI_API_KEY" "")
+STABILITY_API_KEY=$(get_config "STABILITY_API_KEY" "")
+GOOGLE_AI_API_KEY=$(get_config "GOOGLE_AI_API_KEY" "")
+HUGGINGFACE_API_KEY=$(get_config "HUGGINGFACE_API_KEY" "")
+POLLINATIONS_API_KEY=$(get_config "POLLINATIONS_API_KEY" "")
+CLOUDFLARE_ACCOUNT_ID=$(get_config "CLOUDFLARE_ACCOUNT_ID" "")
+CLOUDFLARE_API_TOKEN=$(get_config "CLOUDFLARE_API_TOKEN" "")
+CLOUDFLARE_AI_MODEL=$(get_config "CLOUDFLARE_AI_MODEL" "@cf/black-forest-labs/flux-1-schnell")
+HUGGINGFACE_MODEL=$(get_config "HUGGINGFACE_MODEL" "black-forest-labs/FLUX.1-schnell")
+
+if is_configured "AI_IMAGE_PROVIDER" && [ "$RECONFIGURE" != true ]; then
+    print_success "AI provider already configured: ${AI_IMAGE_PROVIDER}"
+    CONFIGURE_AI=false
+else
     echo ""
     print_info "Generate images using AI and integrate them into the DAM workflow."
-    echo ""
-    echo -e "${CYAN}Available AI Providers:${NC}"
-    echo ""
-    echo "  ┌─────────────────┬──────────────────────┬─────────────┬──────────────────┐"
-    echo "  │ Provider        │ Model                │ Free Tier   │ Best For         │"
-    echo "  ├─────────────────┼──────────────────────┼─────────────┼──────────────────┤"
-    echo "  │ Pollinations    │ FLUX, Turbo          │ ✓ Unlimited │ No signup needed │"
-    echo "  │ Cloudflare      │ FLUX.1, SDXL         │ ✓ 10k/day   │ Edge, reliable   │"
-    echo "  │ Google Gemini   │ Gemini Flash Image   │ ✓ 500/day   │ General, Fast    │"
-    echo "  │ Hugging Face    │ FLUX.1, Stable Diff  │ ✓ Limited   │ Open-source      │"
-    echo "  │ OpenAI          │ DALL-E 3             │ ✗ Paid      │ Photorealistic   │"
-    echo "  │ Stability AI    │ SDXL, SD3            │ ✗ Paid      │ Artistic         │"
-    echo "  └─────────────────┴──────────────────────┴─────────────┴──────────────────┘"
     echo ""
     
     CONFIGURE_AI=false
@@ -802,18 +988,6 @@ if [ ! -f ".env" ]; then
             CONFIGURE_AI=true
         fi
     fi
-    
-    # Initialize AI provider variables
-    OPENAI_API_KEY=""
-    STABILITY_API_KEY=""
-    GOOGLE_AI_API_KEY=""
-    HUGGINGFACE_API_KEY=""
-    POLLINATIONS_API_KEY=""
-    CLOUDFLARE_ACCOUNT_ID=""
-    CLOUDFLARE_API_TOKEN=""
-    CLOUDFLARE_AI_MODEL="@cf/black-forest-labs/flux-1-schnell"
-    AI_IMAGE_PROVIDER="pollinations"
-    HUGGINGFACE_MODEL="black-forest-labs/FLUX.1-schnell"
     
     if [ "$CONFIGURE_AI" = true ]; then
         echo ""
@@ -901,20 +1075,29 @@ if [ ! -f ".env" ]; then
         
         print_success "AI provider configured: ${AI_IMAGE_PROVIDER}"
     fi
-    
-    #---------------------------------------------------------------------------
-    # SSL/HTTPS Configuration
-    #---------------------------------------------------------------------------
-    print_section "SSL/HTTPS Configuration"
-    
+fi  # End of AI configuration else block
+
+#---------------------------------------------------------------------------
+# SSL/HTTPS Configuration
+#---------------------------------------------------------------------------
+print_section "SSL/HTTPS Configuration"
+
+# Initialize SSL variables with existing values
+SSL_ENABLED=$(get_config "SSL_ENABLED" "false")
+SSL_TYPE=$(get_config "SSL_TYPE" "none")
+SSL_DOMAIN=$(get_config "SSL_DOMAIN" "${APP_HOSTNAME}")
+FRONTEND_SSL_PORT=$(get_config "FRONTEND_SSL_PORT" "443")
+
+if is_configured "SSL_TYPE" && [ "$SSL_TYPE" != "none" ] && [ "$RECONFIGURE" != true ]; then
+    print_success "SSL already configured: ${SSL_TYPE}"
+    echo -e "  Domain: ${CYAN}${SSL_DOMAIN}${NC}"
+else
     SSL_ENABLED="false"
     SSL_TYPE="none"
     SSL_DOMAIN="${APP_HOSTNAME}"
     
     echo ""
     echo -e "${CYAN}Do you want to enable HTTPS/SSL?${NC}"
-    echo ""
-    echo -e "  Hostname: ${YELLOW}${APP_HOSTNAME}${NC}"
     echo ""
     echo "  1) No SSL (HTTP only) - Development/Testing"
     echo "  2) Self-signed certificate - Development/Internal use"
@@ -1074,13 +1257,14 @@ SSLEOF
         prompt_input "HTTPS port" "443" FRONTEND_SSL_PORT
         print_success "SSL configured: ${SSL_TYPE} (https://${SSL_DOMAIN}:${FRONTEND_SSL_PORT})"
     fi
-    
-    #---------------------------------------------------------------------------
-    # Write configuration file
-    #---------------------------------------------------------------------------
-    print_step "Writing configuration..."
-    
-    cat > .env << EOF
+fi  # End of SSL configuration else block
+
+#---------------------------------------------------------------------------
+# Write configuration file
+#---------------------------------------------------------------------------
+print_step "Writing configuration..."
+
+cat > .env << EOF
 #===============================================================================
 # HCL DX Composer - Environment Configuration
 # 
