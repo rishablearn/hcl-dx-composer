@@ -175,10 +175,17 @@ class LdapService {
           }
 
           searchRes.on('searchEntry', (entry) => {
-            userDN = entry.objectName;
+            // entry.objectName might be an object - convert to string
+            userDN = entry.objectName.toString ? entry.objectName.toString() : String(entry.objectName);
+            // Also try entry.dn if objectName doesn't work
+            if (!userDN || userDN === '[object Object]') {
+              userDN = entry.dn ? (entry.dn.toString ? entry.dn.toString() : String(entry.dn)) : null;
+            }
             logger.debug(`Found user DN: ${userDN}`);
+            logger.debug(`Entry object keys: ${Object.keys(entry)}`);
+            
             userData = {
-              dn: entry.objectName,
+              dn: userDN,
               username: entry.attributes.find(a => a.type === 'uid')?.values[0] ||
                         entry.attributes.find(a => a.type === 'cn')?.values[0] || 
                         username,
@@ -214,11 +221,27 @@ class LdapService {
             }
 
             // Authenticate the user with their credentials
-            client.bind(userDN, password, (authErr) => {
+            logger.debug(`Attempting bind with DN: "${userDN}" and password length: ${password ? password.length : 0}`);
+            
+            // Create a new client for user authentication (cleaner approach)
+            const userClient = ldap.createClient({
+              url: this.url,
+              timeout: 10000,
+              connectTimeout: 10000
+            });
+            
+            userClient.on('error', (err) => {
+              logger.error('User auth client error:', err);
+            });
+            
+            userClient.bind(userDN, password, (authErr) => {
+              userClient.unbind();
               client.unbind();
               
               if (authErr) {
                 logger.warn(`Authentication failed for user: ${username}`);
+                logger.debug(`Auth error details: ${JSON.stringify(authErr)}`);
+                logger.debug(`Auth error code: ${authErr.code}, message: ${authErr.message}`);
                 return reject(new Error('Invalid credentials'));
               }
 
