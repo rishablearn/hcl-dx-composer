@@ -129,7 +129,7 @@ echo ""
 echo -e "${CYAN}Organizational Units:${NC}"
 
 # Check Users OU
-USERS_OU=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Users,${BASE_DN}" -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" -s base "(objectClass=*)" 2>/dev/null | grep -c "^dn:" || echo "0")
+USERS_OU=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Users,${BASE_DN}" -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" -s base "(objectClass=*)" 2>/dev/null | grep -c "^dn:" | tr -d '\n' || echo "0")
 if [ "$USERS_OU" -gt "0" ]; then
     print_success "ou=Users exists"
 else
@@ -137,7 +137,7 @@ else
 fi
 
 # Check Groups OU
-GROUPS_OU=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Groups,${BASE_DN}" -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" -s base "(objectClass=*)" 2>/dev/null | grep -c "^dn:" || echo "0")
+GROUPS_OU=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Groups,${BASE_DN}" -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" -s base "(objectClass=*)" 2>/dev/null | grep -c "^dn:" | tr -d '\n' || echo "0")
 if [ "$GROUPS_OU" -gt "0" ]; then
     print_success "ou=Groups exists"
 else
@@ -156,7 +156,7 @@ if echo "$USER_SEARCH" | grep -q "No such object"; then
     echo ""
     echo -e "${YELLOW}Fix: Run ./scripts/populate-ldap.sh${NC}"
 else
-    USER_COUNT=$(echo "$USER_SEARCH" | grep -c "^dn:" || echo "0")
+    USER_COUNT=$(echo "$USER_SEARCH" | grep -c "^dn:" | tr -d '\n' || echo "0")
     
     if [ "$USER_COUNT" -eq "0" ]; then
         print_warning "No users found in LDAP"
@@ -197,7 +197,7 @@ GROUP_SEARCH=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -
 if echo "$GROUP_SEARCH" | grep -q "No such object"; then
     print_warning "Cannot list groups - ou=Groups does not exist"
 else
-    GROUP_COUNT=$(echo "$GROUP_SEARCH" | grep -c "^dn:" || echo "0")
+    GROUP_COUNT=$(echo "$GROUP_SEARCH" | grep -c "^dn:" | tr -d '\n' || echo "0")
     
     if [ "$GROUP_COUNT" -eq "0" ]; then
         print_warning "No groups found in LDAP"
@@ -278,12 +278,12 @@ print_header "Diagnostic Summary"
 
 ISSUES=0
 
-if [ "$USERS_OU" -eq "0" ]; then
+if [ "${USERS_OU:-0}" = "0" ]; then
     print_error "CRITICAL: ou=Users does not exist"
     ISSUES=$((ISSUES + 1))
 fi
 
-if [ "$USER_COUNT" -eq "0" ] 2>/dev/null; then
+if [ "${USER_COUNT:-0}" = "0" ]; then
     print_error "CRITICAL: No users in LDAP"
     ISSUES=$((ISSUES + 1))
 fi

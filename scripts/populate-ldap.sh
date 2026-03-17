@@ -92,12 +92,11 @@ fi
 echo -e "${CYAN}Checking if organizational units exist...${NC}"
 OU_EXISTS=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Users,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(objectClass=*)" 2>/dev/null | grep -c "dn:" || echo "0")
 
-if [ "$OU_EXISTS" -eq "0" ]; then
-    echo -e "${YELLOW}Creating organizational units...${NC}"
-    
-    # Create OUs one at a time to handle errors better
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
-dn: ou=Users,dc=hcldx,dc=local
+# Always try to create OUs (ldapadd -c continues on errors)
+echo -e "${YELLOW}Creating organizational units...${NC}"
+
+# Create OUs using printf and pipe (more reliable than heredoc with docker exec)
+printf 'dn: ou=Users,dc=hcldx,dc=local
 objectClass: organizationalUnit
 ou: Users
 description: HCL DX Composer Users
@@ -111,22 +110,14 @@ dn: ou=ServiceAccounts,dc=hcldx,dc=local
 objectClass: organizationalUnit
 ou: ServiceAccounts
 description: Service Accounts for API Integration
-LDIF
-    
-    echo -e "${GREEN}✓ Organizational units created${NC}"
-else
-    echo -e "${GREEN}✓ Organizational units already exist${NC}"
-fi
+' | docker exec -i ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c 2>&1 || true
 
-# Check if users exist
-echo -e "${CYAN}Checking if users exist...${NC}"
-USER_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Users,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(uid=*)" 2>/dev/null | grep -c "^dn:" || echo "0")
+echo -e "${GREEN}✓ Organizational units processed${NC}"
 
-if [ "$USER_COUNT" -eq "0" ]; then
-    echo -e "${YELLOW}Creating users...${NC}"
-    
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
-dn: uid=admin,ou=Users,dc=hcldx,dc=local
+# Create users using printf and pipe (always try, -c continues on errors)
+echo -e "${YELLOW}Creating users...${NC}"
+
+printf 'dn: uid=admin,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
 objectClass: posixAccount
 objectClass: shadowAccount
@@ -141,7 +132,6 @@ homeDirectory: /home/admin
 loginShell: /bin/bash
 mail: admin@hcldx.local
 userPassword: password
-description: System Administrator - Full access to all features
 
 dn: uid=author,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -158,7 +148,6 @@ homeDirectory: /home/author
 loginShell: /bin/bash
 mail: author@hcldx.local
 userPassword: password
-description: Content Author - Create and edit content
 
 dn: uid=reviewer,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -175,7 +164,6 @@ homeDirectory: /home/reviewer
 loginShell: /bin/bash
 mail: reviewer@hcldx.local
 userPassword: password
-description: Content Reviewer - Review and approve content
 
 dn: uid=publisher,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -192,7 +180,6 @@ homeDirectory: /home/publisher
 loginShell: /bin/bash
 mail: publisher@hcldx.local
 userPassword: password
-description: Content Publisher - Publish to HCL DX
 
 dn: uid=author2,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -209,7 +196,6 @@ homeDirectory: /home/author2
 loginShell: /bin/bash
 mail: author2@hcldx.local
 userPassword: password
-description: Secondary Author for testing
 
 dn: uid=reviewer2,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -226,23 +212,14 @@ homeDirectory: /home/reviewer2
 loginShell: /bin/bash
 mail: reviewer2@hcldx.local
 userPassword: password
-description: Secondary Reviewer for testing
-LDIF
-    
-    echo -e "${GREEN}✓ Users created${NC}"
-else
-    echo -e "${GREEN}✓ Users already exist (${USER_COUNT} found)${NC}"
-fi
+' | docker exec -i ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c 2>&1 || true
 
-# Check if groups exist
-echo -e "${CYAN}Checking if groups exist...${NC}"
-GROUP_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Groups,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(cn=*)" 2>/dev/null | grep -c "^dn:" || echo "0")
+echo -e "${GREEN}✓ Users processed${NC}"
 
-if [ "$GROUP_COUNT" -eq "0" ]; then
-    echo -e "${YELLOW}Creating groups...${NC}"
-    
-    docker exec ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c << 'LDIF'
-dn: cn=Admins,ou=Groups,dc=hcldx,dc=local
+# Create groups using printf and pipe
+echo -e "${YELLOW}Creating groups...${NC}"
+
+printf 'dn: cn=Admins,ou=Groups,dc=hcldx,dc=local
 objectClass: groupOfNames
 cn: Admins
 description: System Administrators
@@ -278,12 +255,18 @@ member: uid=author2,ou=Users,dc=hcldx,dc=local
 member: uid=reviewer,ou=Users,dc=hcldx,dc=local
 member: uid=reviewer2,ou=Users,dc=hcldx,dc=local
 member: uid=publisher,ou=Users,dc=hcldx,dc=local
-LDIF
-    
-    echo -e "${GREEN}✓ Groups created${NC}"
-else
-    echo -e "${GREEN}✓ Groups already exist (${GROUP_COUNT} found)${NC}"
-fi
+' | docker exec -i ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" -c 2>&1 || true
+
+echo -e "${GREEN}✓ Groups processed${NC}"
+
+# Verify users were created
+echo ""
+echo -e "${CYAN}Verifying LDAP entries...${NC}"
+USER_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Users,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(uid=*)" 2>/dev/null | grep -c "^dn:" | tr -d '\n' || echo "0")
+echo -e "  Users found: ${USER_COUNT}"
+
+GROUP_COUNT=$(docker exec ${CONTAINER_NAME} ldapsearch -x -H ldap://localhost -b "ou=Groups,dc=hcldx,dc=local" -D "cn=admin,dc=hcldx,dc=local" -w "${LDAP_ADMIN_PASSWORD}" "(cn=*)" 2>/dev/null | grep -c "^dn:" | tr -d '\n' || echo "0")
+echo -e "  Groups found: ${GROUP_COUNT}"
 
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
