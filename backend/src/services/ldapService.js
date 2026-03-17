@@ -49,13 +49,17 @@ class LdapService {
           return reject(new Error('LDAP service authentication failed'));
         }
 
-        // Search for the user - support both OpenLDAP (uid) and Active Directory (sAMAccountName)
-        const searchFilter = `(|(uid=${username})(sAMAccountName=${username})(userPrincipalName=${username})(mail=${username})(cn=${username}))`;
+        // Search for the user - simplified filter for OpenLDAP compatibility
+        // Using uid and cn which work with both OpenLDAP and AD
+        const searchFilter = `(|(uid=${username})(cn=${username})(mail=${username}))`;
         const searchOptions = {
           filter: searchFilter,
           scope: 'sub',
-          attributes: ['dn', 'uid', 'sAMAccountName', 'mail', 'displayName', 'memberOf', 'cn', 'givenName', 'sn']
+          attributes: ['dn', 'uid', 'mail', 'displayName', 'memberOf', 'cn', 'givenName', 'sn']
         };
+        
+        logger.debug(`LDAP search filter: ${searchFilter}`);
+        logger.debug(`LDAP search base: ${this.userSearchBase}`);
 
         client.search(this.userSearchBase, searchOptions, (searchErr, searchRes) => {
           if (searchErr) {
@@ -66,16 +70,18 @@ class LdapService {
 
           searchRes.on('searchEntry', (entry) => {
             userDN = entry.objectName;
+            logger.debug(`Found user DN: ${userDN}`);
             userData = {
               dn: entry.objectName,
               username: entry.attributes.find(a => a.type === 'uid')?.values[0] ||
-                        entry.attributes.find(a => a.type === 'sAMAccountName')?.values[0] || 
+                        entry.attributes.find(a => a.type === 'cn')?.values[0] || 
                         username,
               email: entry.attributes.find(a => a.type === 'mail')?.values[0],
               displayName: entry.attributes.find(a => a.type === 'displayName')?.values[0] ||
                           entry.attributes.find(a => a.type === 'cn')?.values[0],
               memberOf: entry.attributes.find(a => a.type === 'memberOf')?.values || []
             };
+            logger.debug(`User data: ${JSON.stringify(userData)}`);
           });
 
           searchRes.on('error', (err) => {
