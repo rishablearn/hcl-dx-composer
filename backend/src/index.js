@@ -126,12 +126,38 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not Found', path: req.path });
 });
 
+// Seed default role mappings for local LDAP
+async function seedDefaultRoleMappings() {
+  const ldapMode = process.env.LDAP_MODE || 'local';
+  if (ldapMode !== 'local') return;
+  
+  const mappings = [
+    { dn: 'cn=Admins,ou=Groups,dc=hcldx,dc=local', name: 'Admins', role: 'wpsadmin' },
+    { dn: 'cn=Authors,ou=Groups,dc=hcldx,dc=local', name: 'Authors', role: 'dxcontentauthors' },
+    { dn: 'cn=Reviewers,ou=Groups,dc=hcldx,dc=local', name: 'Reviewers', role: 'dxcontentapprovers' },
+    { dn: 'cn=Publishers,ou=Groups,dc=hcldx,dc=local', name: 'Publishers', role: 'dxcontentauthors' },
+    { dn: 'cn=AllUsers,ou=Groups,dc=hcldx,dc=local', name: 'AllUsers', role: 'dxcontentauthors' },
+  ];
+  
+  for (const mapping of mappings) {
+    await db.query(`
+      INSERT INTO role_mappings (ldap_group_dn, ldap_group_name, app_role)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (ldap_group_dn, app_role) DO NOTHING
+    `, [mapping.dn, mapping.name, mapping.role]);
+  }
+  logger.info('Default role mappings seeded for local LDAP');
+}
+
 // Initialize database and start server
 async function startServer() {
   try {
     // Test database connection
     await db.query('SELECT NOW()');
     logger.info('Database connection established');
+    
+    // Seed default role mappings for local LDAP mode
+    await seedDefaultRoleMappings();
 
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`HCL DX Composer Backend running on port ${PORT}`);
