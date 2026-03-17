@@ -270,7 +270,9 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
     if (dxService.isConfigured()) {
       try {
         logger.info(`Uploading to HCL DX "Not Approved Assets" collection...`);
-        const notApprovedCollection = await dxService.getNotApprovedCollection();
+        // Get user's LTPA token for DX API authentication
+        const authToken = req.user?.ltpaToken || null;
+        const notApprovedCollection = await dxService.getNotApprovedCollection(authToken);
         
         const dxAsset = await dxService.uploadAsset(
           notApprovedCollection.id,
@@ -284,7 +286,8 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
             uploadedBy: req.user.username,
             uploadedAt: new Date().toISOString(),
             approvalStatus: 'pending'
-          }
+          },
+          authToken
         );
 
         // Update local record with DX references
@@ -607,8 +610,11 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
     try {
       logger.info(`Moving asset to "Approved Assets" collection in HCL DX...`);
       
+      // Get user's LTPA token for DX API authentication
+      const authToken = req.user?.ltpaToken || null;
+      
       // Get or create "Approved Assets" collection
-      const approvedCollection = await dxService.getApprovedCollection();
+      const approvedCollection = await dxService.getApprovedCollection(authToken);
       const sourceCollectionId = asset.dx_collection_id;
       const sourceDxAssetId = asset.dx_asset_id;
 
@@ -632,13 +638,14 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
             approvedAt: new Date().toISOString(),
             approvalStatus: 'approved',
             originalAssetId: sourceDxAssetId
-          }
+          },
+          authToken
         );
         dxAssetId = dxAsset.id;
 
         // Delete from "Not Approved" collection
         try {
-          await dxService.deleteAssetFromCollection(sourceCollectionId, sourceDxAssetId);
+          await dxService.deleteAssetFromCollection(sourceCollectionId, sourceDxAssetId, authToken);
           logger.info(`Deleted asset from "Not Approved" collection: ${sourceDxAssetId}`);
         } catch (deleteErr) {
           logger.warn(`Could not delete from source collection: ${deleteErr.message}`);
@@ -659,7 +666,8 @@ router.post('/assets/:id/publish', authenticateToken, requireApprover, async (re
             approvedBy: req.user.username,
             approvedAt: new Date().toISOString(),
             approvalStatus: 'approved'
-          }
+          },
+          authToken
         );
         dxAssetId = dxAsset.id;
       }
@@ -901,7 +909,8 @@ router.get('/dx/status', authenticateToken, async (req, res) => {
 
     // Try to get collections from DX
     try {
-      const collections = await dxService.getCollections();
+      const authToken = req.user?.ltpaToken || null;
+      const collections = await dxService.getCollections(authToken);
       const notApproved = collections.contents?.find(c => c.name === 'Not Approved Assets');
       const approved = collections.contents?.find(c => c.name === 'Approved Assets');
 
@@ -942,9 +951,12 @@ router.post('/dx/init-collections', authenticateToken, requireApprover, async (r
       errors: []
     };
 
+    // Get user's LTPA token for DX API authentication
+    const authToken = req.user?.ltpaToken || null;
+
     // Create/get "Not Approved Assets" collection
     try {
-      const notApproved = await dxService.getNotApprovedCollection();
+      const notApproved = await dxService.getNotApprovedCollection(authToken);
       results.notApproved = {
         id: notApproved.id,
         name: notApproved.name,
@@ -958,7 +970,7 @@ router.post('/dx/init-collections', authenticateToken, requireApprover, async (r
 
     // Create/get "Approved Assets" collection
     try {
-      const approved = await dxService.getApprovedCollection();
+      const approved = await dxService.getApprovedCollection(authToken);
       results.approved = {
         id: approved.id,
         name: approved.name,
@@ -993,7 +1005,8 @@ router.get('/dx/collections', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'HCL DX not configured' });
     }
 
-    const collections = await dxService.getCollections();
+    const authToken = req.user?.ltpaToken || null;
+    const collections = await dxService.getCollections(authToken);
     res.json(collections);
   } catch (error) {
     logger.error('Error fetching DX collections:', error);
@@ -1011,10 +1024,11 @@ router.get('/dx/collections/:id/items', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'HCL DX not configured' });
     }
 
+    const authToken = req.user?.ltpaToken || null;
     const items = await dxService.getCollectionItems(req.params.id, {
       limit: req.query.limit || 50,
       offset: req.query.offset || 0
-    });
+    }, authToken);
     res.json(items);
   } catch (error) {
     logger.error('Error fetching DX collection items:', error);
@@ -1050,7 +1064,8 @@ router.get('/dx/wcm/libraries', authenticateToken, async (req, res) => {
     }
 
     logger.info(`Fetching WCM libraries for user: ${req.user?.username}`);
-    const libraries = await dxService.getLibraries();
+    const authToken = req.user?.ltpaToken || null;
+    const libraries = await dxService.getLibraries(authToken);
     res.json(libraries);
   } catch (error) {
     logger.error('Error fetching WCM libraries:', error.message);
@@ -1081,7 +1096,8 @@ router.get('/dx/wcm/libraries/:id/templates', authenticateToken, async (req, res
       return res.status(400).json({ error: 'HCL DX not configured' });
     }
 
-    const templates = await dxService.getAuthoringTemplates(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const templates = await dxService.getAuthoringTemplates(req.params.id, authToken);
     res.json(templates);
   } catch (error) {
     logger.error('Error fetching WCM templates:', error);

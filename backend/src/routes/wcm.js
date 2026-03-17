@@ -20,7 +20,8 @@ const logger = require('../config/logger');
  */
 router.get('/libraries', authenticateToken, async (req, res) => {
   try {
-    const libraries = await dxService.getLibraries();
+    const authToken = req.user?.ltpaToken || null;
+    const libraries = await dxService.getLibraries(authToken);
     res.json(libraries);
   } catch (error) {
     logger.error('Error fetching WCM libraries:', error);
@@ -34,7 +35,8 @@ router.get('/libraries', authenticateToken, async (req, res) => {
  */
 router.get('/libraries/:id/authoring-templates', authenticateToken, async (req, res) => {
   try {
-    const templates = await dxService.getAuthoringTemplates(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const templates = await dxService.getAuthoringTemplates(req.params.id, authToken);
     res.json(templates);
   } catch (error) {
     logger.error('Error fetching authoring templates:', error);
@@ -48,7 +50,8 @@ router.get('/libraries/:id/authoring-templates', authenticateToken, async (req, 
  */
 router.get('/authoring-templates/:id', authenticateToken, async (req, res) => {
   try {
-    const template = await dxService.getAuthoringTemplateDetails(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const template = await dxService.getAuthoringTemplateDetails(req.params.id, authToken);
     res.json(template);
   } catch (error) {
     logger.error('Error fetching authoring template details:', error);
@@ -62,7 +65,8 @@ router.get('/authoring-templates/:id', authenticateToken, async (req, res) => {
  */
 router.get('/libraries/:id/presentation-templates', authenticateToken, async (req, res) => {
   try {
-    const templates = await dxService.getPresentationTemplates(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const templates = await dxService.getPresentationTemplates(req.params.id, authToken);
     res.json(templates);
   } catch (error) {
     logger.error('Error fetching presentation templates:', error);
@@ -76,7 +80,8 @@ router.get('/libraries/:id/presentation-templates', authenticateToken, async (re
  */
 router.get('/libraries/:id/workflows', authenticateToken, async (req, res) => {
   try {
-    const workflows = await dxService.getWorkflows(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const workflows = await dxService.getWorkflows(req.params.id, authToken);
     res.json(workflows);
   } catch (error) {
     logger.error('Error fetching workflows:', error);
@@ -90,7 +95,8 @@ router.get('/libraries/:id/workflows', authenticateToken, async (req, res) => {
  */
 router.get('/workflows/:id', authenticateToken, async (req, res) => {
   try {
-    const workflow = await dxService.getWorkflowDetails(req.params.id);
+    const authToken = req.user?.ltpaToken || null;
+    const workflow = await dxService.getWorkflowDetails(req.params.id, authToken);
     res.json(workflow);
   } catch (error) {
     logger.error('Error fetching workflow details:', error);

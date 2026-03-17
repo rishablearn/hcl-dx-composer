@@ -388,15 +388,18 @@ class DxService {
         'Accept': 'application/json'
       };
 
-      // Always include Basic Auth
-      if (this.username && this.password) {
-        const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
-        headers['Authorization'] = `Basic ${auth}`;
-      }
-
-      // Additionally include LTPA token if provided
-      if (authToken) {
-        headers['Cookie'] = `LtpaToken2=${authToken}`;
+      // Get LTPA token for authentication (DAM API requires LtpaToken2 cookie)
+      const ltpaToken = authToken || await this.getLtpaToken();
+      if (ltpaToken) {
+        headers['Cookie'] = `LtpaToken2=${ltpaToken}`;
+        logger.debug(`[${reqId}] Using LtpaToken2 for upload authentication`);
+      } else {
+        // Fallback to Basic Auth if LTPA not available
+        if (this.username && this.password) {
+          const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+          headers['Authorization'] = `Basic ${auth}`;
+          logger.debug(`[${reqId}] Fallback to Basic Auth for upload`);
+        }
       }
 
       const url = `${this.getDamApiUrl()}/collections/${collectionId}/items`;
