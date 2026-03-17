@@ -46,8 +46,19 @@ INTERACTIVE=true
 RECONFIGURE=false
 ENV_FILE=".env"
 
-# Track what's already configured
-declare -A EXISTING_CONFIG
+# Existing config values (loaded from .env if exists)
+EXISTING_POSTGRES_DB=""
+EXISTING_POSTGRES_PASSWORD=""
+EXISTING_BACKEND_PORT=""
+EXISTING_JWT_SECRET=""
+EXISTING_APP_HOSTNAME=""
+EXISTING_FRONTEND_PORT=""
+EXISTING_LDAP_URL=""
+EXISTING_LDAP_MODE=""
+EXISTING_HCL_DX_HOST=""
+EXISTING_HCL_DX_PASSWORD=""
+EXISTING_AI_IMAGE_PROVIDER=""
+EXISTING_SSL_TYPE=""
 
 #-------------------------------------------------------------------------------
 # Parse Command Line Arguments
@@ -83,47 +94,45 @@ parse_args() {
 #-------------------------------------------------------------------------------
 load_existing_config() {
     if [ -f "$ENV_FILE" ]; then
-        while IFS='=' read -r key value || [ -n "$key" ]; do
-            # Skip comments and empty lines
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            
-            # Remove leading/trailing whitespace
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
-            
-            # Store non-empty, non-placeholder values
-            if [ -n "$value" ] && \
-               [ "$value" != "your-dx-server.domain.com" ] && \
-               [ "$value" != "your_dx_password" ] && \
-               [ "$value" != "your_ldap_password" ] && \
-               [ "$value" != "change_this_secret" ] && \
-               [[ "$value" != *"your-"* ]] && \
-               [[ "$value" != *"change_"* ]]; then
-                EXISTING_CONFIG["$key"]="$value"
-            fi
-        done < "$ENV_FILE"
+        # Read key config values from existing .env
+        EXISTING_POSTGRES_DB=$(grep "^POSTGRES_DB=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_BACKEND_PORT=$(grep "^BACKEND_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_JWT_SECRET=$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_APP_HOSTNAME=$(grep "^APP_HOSTNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_FRONTEND_PORT=$(grep "^FRONTEND_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_LDAP_URL=$(grep "^LDAP_URL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_LDAP_MODE=$(grep "^LDAP_MODE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_HOST=$(grep "^HCL_DX_HOST=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_PASSWORD=$(grep "^HCL_DX_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_AI_IMAGE_PROVIDER=$(grep "^AI_IMAGE_PROVIDER=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_SSL_TYPE=$(grep "^SSL_TYPE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        
+        # Also load other values we need
+        EXISTING_POSTGRES_USER=$(grep "^POSTGRES_USER=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_POSTGRES_PORT=$(grep "^POSTGRES_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_SESSION_SECRET=$(grep "^SESSION_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_PORT=$(grep "^HCL_DX_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_PROTOCOL=$(grep "^HCL_DX_PROTOCOL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_USERNAME=$(grep "^HCL_DX_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_HCL_DX_WCM_LIBRARY=$(grep "^HCL_DX_WCM_LIBRARY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_SSL_DOMAIN=$(grep "^SSL_DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_SSL_ENABLED=$(grep "^SSL_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+        EXISTING_FRONTEND_SSL_PORT=$(grep "^FRONTEND_SSL_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
     fi
 }
 
 #-------------------------------------------------------------------------------
-# Check if a config key is already configured
-# Usage: is_configured "KEY_NAME"
-# Returns 0 (true) if configured, 1 (false) if not
+# Check if a config key has a valid value (not empty, not placeholder)
 #-------------------------------------------------------------------------------
-is_configured() {
-    local key="$1"
-    [ -n "${EXISTING_CONFIG[$key]:-}" ]
-}
-
-#-------------------------------------------------------------------------------
-# Get existing config value or default
-# Usage: get_config "KEY_NAME" "default_value"
-#-------------------------------------------------------------------------------
-get_config() {
-    local key="$1"
-    local default="$2"
-    echo "${EXISTING_CONFIG[$key]:-$default}"
+is_valid_value() {
+    local value="$1"
+    [ -n "$value" ] && \
+    [ "$value" != "your-dx-server.domain.com" ] && \
+    [ "$value" != "your_dx_password" ] && \
+    [ "$value" != "your_ldap_password" ] && \
+    [[ "$value" != *"your-"* ]] && \
+    [[ "$value" != *"change_"* ]]
 }
 
 #-------------------------------------------------------------------------------
@@ -525,27 +534,26 @@ CONFIGURED_COUNT=0
 UNCONFIGURED_SECTIONS=""
 
 # Check what's configured
-if is_configured "POSTGRES_DB" && is_configured "POSTGRES_PASSWORD"; then
-    ((CONFIGURED_COUNT++))
+if is_valid_value "$EXISTING_POSTGRES_DB" && is_valid_value "$EXISTING_POSTGRES_PASSWORD"; then
+    CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
 else
     UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}Database, "
 fi
 
-if is_configured "HCL_DX_HOST" && is_configured "HCL_DX_PASSWORD" && \
-   [ "$(get_config HCL_DX_HOST '')" != "your-dx-server.domain.com" ]; then
-    ((CONFIGURED_COUNT++))
+if is_valid_value "$EXISTING_HCL_DX_HOST" && is_valid_value "$EXISTING_HCL_DX_PASSWORD"; then
+    CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
 else
     UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}HCL DX, "
 fi
 
-if is_configured "LDAP_URL"; then
-    ((CONFIGURED_COUNT++))
+if is_valid_value "$EXISTING_LDAP_URL"; then
+    CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
 else
     UNCONFIGURED_SECTIONS="${UNCONFIGURED_SECTIONS}LDAP, "
 fi
 
-if is_configured "AI_IMAGE_PROVIDER"; then
-    ((CONFIGURED_COUNT++))
+if is_valid_value "$EXISTING_AI_IMAGE_PROVIDER"; then
+    CONFIGURED_COUNT=$((CONFIGURED_COUNT + 1))
 fi
 
 # Remove trailing comma
@@ -580,36 +588,14 @@ echo ""
 print_info "Press Enter to accept default values shown in [brackets]."
 echo ""
 
-# Helper function: prompt only if not configured or reconfiguring
-# Usage: smart_prompt "KEY" "Question" "default" variable_name
-smart_prompt() {
-    local key="$1"
-    local question="$2"
-    local default="$3"
-    local var_name="$4"
-    
-    if [ "$RECONFIGURE" = true ] || ! is_configured "$key"; then
-        # Get existing value as default if available
-        local existing=$(get_config "$key" "$default")
-        prompt_input "$question" "$existing" "$var_name"
+# Helper: get value or default
+get_val() {
+    local existing="$1"
+    local default="$2"
+    if [ -n "$existing" ]; then
+        echo "$existing"
     else
-        # Use existing value
-        eval "$var_name=\"${EXISTING_CONFIG[$key]}\""
-        echo -e "  ${GREEN}✓${NC} $question: ${CYAN}${EXISTING_CONFIG[$key]}${NC} (existing)"
-    fi
-}
-
-# Helper function: prompt secret only if not configured or reconfiguring
-smart_prompt_secret() {
-    local key="$1"
-    local question="$2"
-    local var_name="$3"
-    
-    if [ "$RECONFIGURE" = true ] || ! is_configured "$key"; then
-        prompt_secret "$question" "$var_name"
-    else
-        eval "$var_name=\"${EXISTING_CONFIG[$key]}\""
-        echo -e "  ${GREEN}✓${NC} $question: ${CYAN}***configured***${NC} (existing)"
+        echo "$default"
     fi
 }
 
@@ -618,12 +604,12 @@ smart_prompt_secret() {
 #---------------------------------------------------------------------------
 print_step "Database Configuration"
 
-if is_configured "POSTGRES_DB" && is_configured "POSTGRES_PASSWORD" && [ "$RECONFIGURE" != true ]; then
+if is_valid_value "$EXISTING_POSTGRES_DB" && is_valid_value "$EXISTING_POSTGRES_PASSWORD" && [ "$RECONFIGURE" != true ]; then
     print_success "Database already configured"
-    POSTGRES_DB=$(get_config "POSTGRES_DB" "hcl_dx_staging")
-    POSTGRES_USER=$(get_config "POSTGRES_USER" "hcldx")
-    DB_PASSWORD=$(get_config "POSTGRES_PASSWORD" "")
-    POSTGRES_PORT=$(get_config "POSTGRES_PORT" "5432")
+    POSTGRES_DB=$(get_val "$EXISTING_POSTGRES_DB" "hcl_dx_staging")
+    POSTGRES_USER=$(get_val "$EXISTING_POSTGRES_USER" "hcldx")
+    DB_PASSWORD="$EXISTING_POSTGRES_PASSWORD"
+    POSTGRES_PORT=$(get_val "$EXISTING_POSTGRES_PORT" "5432")
     echo -e "  Database: ${CYAN}${POSTGRES_DB}${NC}"
     echo -e "  User: ${CYAN}${POSTGRES_USER}${NC}"
     echo -e "  Port: ${CYAN}${POSTGRES_PORT}${NC}"
@@ -631,8 +617,8 @@ else
     print_info "PostgreSQL database settings for storing application data."
     echo ""
     
-    smart_prompt "POSTGRES_DB" "Database name" "hcl_dx_staging" POSTGRES_DB
-    smart_prompt "POSTGRES_USER" "Database user" "hcldx" POSTGRES_USER
+    prompt_input "Database name" "hcl_dx_staging" POSTGRES_DB
+    prompt_input "Database user" "hcldx" POSTGRES_USER
     DB_PASSWORD=$(generate_secret 16)
     if [ "$INTERACTIVE" = true ]; then
         echo -e "Database password: ${YELLOW}[auto-generated]${NC}"
@@ -642,7 +628,7 @@ else
             prompt_secret "Enter database password" DB_PASSWORD
         fi
     fi
-    smart_prompt "POSTGRES_PORT" "Database port" "5432" POSTGRES_PORT
+    prompt_input "Database port" "5432" POSTGRES_PORT
 fi
 
 #---------------------------------------------------------------------------
@@ -650,16 +636,16 @@ fi
 #---------------------------------------------------------------------------
 print_step "Backend API Configuration"
 
-if is_configured "BACKEND_PORT" && is_configured "JWT_SECRET" && [ "$RECONFIGURE" != true ]; then
+if is_valid_value "$EXISTING_BACKEND_PORT" && is_valid_value "$EXISTING_JWT_SECRET" && [ "$RECONFIGURE" != true ]; then
     print_success "Backend already configured"
-    BACKEND_PORT=$(get_config "BACKEND_PORT" "3001")
-    JWT_SECRET=$(get_config "JWT_SECRET" "")
-    SESSION_SECRET=$(get_config "SESSION_SECRET" "")
+    BACKEND_PORT=$(get_val "$EXISTING_BACKEND_PORT" "3001")
+    JWT_SECRET="$EXISTING_JWT_SECRET"
+    SESSION_SECRET="$EXISTING_SESSION_SECRET"
     echo -e "  Port: ${CYAN}${BACKEND_PORT}${NC}"
 else
     print_info "Settings for the Node.js backend server."
     echo ""
-    smart_prompt "BACKEND_PORT" "Backend port" "3001" BACKEND_PORT
+    prompt_input "Backend port" "3001" BACKEND_PORT
     JWT_SECRET=$(generate_secret 32)
     SESSION_SECRET=$(generate_secret 32)
     print_success "JWT and session secrets auto-generated"
@@ -670,8 +656,8 @@ fi
 #---------------------------------------------------------------------------
 print_step "Server Hostname Configuration"
 
-if is_configured "APP_HOSTNAME" && [ "$RECONFIGURE" != true ]; then
-    APP_HOSTNAME=$(get_config "APP_HOSTNAME" "localhost")
+if is_valid_value "$EXISTING_APP_HOSTNAME" && [ "$RECONFIGURE" != true ]; then
+    APP_HOSTNAME="$EXISTING_APP_HOSTNAME"
     print_success "Hostname already configured: ${APP_HOSTNAME}"
 else
     print_info "Enter the hostname or IP address to access this application."
@@ -681,7 +667,7 @@ else
     echo "  Examples: myserver, myserver.local, 192.168.1.100, localhost"
     echo ""
     
-    existing_host=$(get_config "APP_HOSTNAME" "localhost")
+    existing_host="localhost"
     read -p "Enter server hostname or IP [$existing_host]: " APP_HOSTNAME
     APP_HOSTNAME="${APP_HOSTNAME:-$existing_host}"
     APP_HOSTNAME=$(echo "$APP_HOSTNAME" | tr -d '\n\r' | xargs)
@@ -695,13 +681,13 @@ fi
 #---------------------------------------------------------------------------
 print_step "Frontend Configuration"
 
-if is_configured "FRONTEND_PORT" && [ "$RECONFIGURE" != true ]; then
-    FRONTEND_PORT=$(get_config "FRONTEND_PORT" "3000")
+if is_valid_value "$EXISTING_FRONTEND_PORT" && [ "$RECONFIGURE" != true ]; then
+    FRONTEND_PORT="$EXISTING_FRONTEND_PORT"
     print_success "Frontend already configured on port ${FRONTEND_PORT}"
 else
     print_info "Settings for the React frontend application."
     echo ""
-    smart_prompt "FRONTEND_PORT" "Frontend port" "3000" FRONTEND_PORT
+    prompt_input "Frontend port" "3000" FRONTEND_PORT
 fi
 
 # API URL uses relative path - nginx proxies to backend
@@ -712,18 +698,18 @@ VITE_API_BASE_URL="/api"
 #---------------------------------------------------------------------------
 print_step "LDAP Authentication Configuration"
 
-if is_configured "LDAP_URL" && [ "$RECONFIGURE" != true ]; then
-    LDAP_MODE=$(get_config "LDAP_MODE" "local")
-    LDAP_URL=$(get_config "LDAP_URL" "")
-    LDAP_BASE_DN=$(get_config "LDAP_BASE_DN" "")
-    LDAP_BIND_DN=$(get_config "LDAP_BIND_DN" "")
-    LDAP_BIND_PASSWORD=$(get_config "LDAP_BIND_PASSWORD" "")
-    LDAP_USER_SEARCH_BASE=$(get_config "LDAP_USER_SEARCH_BASE" "")
-    LDAP_GROUP_SEARCH_BASE=$(get_config "LDAP_GROUP_SEARCH_BASE" "")
-    LDAP_ADMIN_PASSWORD=$(get_config "LDAP_ADMIN_PASSWORD" "")
-    LDAP_CONFIG_PASSWORD=$(get_config "LDAP_CONFIG_PASSWORD" "")
-    LDAP_ORGANISATION=$(get_config "LDAP_ORGANISATION" "")
-    LDAP_DOMAIN=$(get_config "LDAP_DOMAIN" "")
+if is_valid_value "$EXISTING_LDAP_URL" && [ "$RECONFIGURE" != true ]; then
+    LDAP_MODE=$(get_val "$EXISTING_LDAP_MODE" "local")
+    LDAP_URL="$EXISTING_LDAP_URL"
+    LDAP_BASE_DN=$(grep "^LDAP_BASE_DN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_BIND_DN=$(grep "^LDAP_BIND_DN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_BIND_PASSWORD=$(grep "^LDAP_BIND_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_USER_SEARCH_BASE=$(grep "^LDAP_USER_SEARCH_BASE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_GROUP_SEARCH_BASE=$(grep "^LDAP_GROUP_SEARCH_BASE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_ADMIN_PASSWORD=$(grep "^LDAP_ADMIN_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_CONFIG_PASSWORD=$(grep "^LDAP_CONFIG_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_ORGANISATION=$(grep "^LDAP_ORGANISATION=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    LDAP_DOMAIN=$(grep "^LDAP_DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
     
     print_success "LDAP already configured (${LDAP_MODE} mode)"
     echo -e "  URL: ${CYAN}${LDAP_URL}${NC}"
@@ -879,16 +865,15 @@ fi  # End of LDAP configuration else block
 print_step "HCL Digital Experience API Configuration"
 
 # Check if HCL DX is already properly configured
-DX_HOST_VAL=$(get_config "HCL_DX_HOST" "")
-if [ -n "$DX_HOST_VAL" ] && [ "$DX_HOST_VAL" != "your-dx-server.domain.com" ] && [ "$RECONFIGURE" != true ]; then
-    HCL_DX_HOST=$(get_config "HCL_DX_HOST" "")
-    HCL_DX_PORT=$(get_config "HCL_DX_PORT" "443")
-    HCL_DX_PROTOCOL=$(get_config "HCL_DX_PROTOCOL" "https")
-    HCL_DX_USERNAME=$(get_config "HCL_DX_USERNAME" "wpsadmin")
-    HCL_DX_PASSWORD=$(get_config "HCL_DX_PASSWORD" "")
-    HCL_DX_WCM_LIBRARY=$(get_config "HCL_DX_WCM_LIBRARY" "Web Content")
-    HCL_DX_DAM_BASE_URL=$(get_config "HCL_DX_DAM_BASE_URL" "")
-    HCL_DX_WCM_BASE_URL=$(get_config "HCL_DX_WCM_BASE_URL" "")
+if is_valid_value "$EXISTING_HCL_DX_HOST" && [ "$RECONFIGURE" != true ]; then
+    HCL_DX_HOST="$EXISTING_HCL_DX_HOST"
+    HCL_DX_PORT=$(get_val "$EXISTING_HCL_DX_PORT" "443")
+    HCL_DX_PROTOCOL=$(get_val "$EXISTING_HCL_DX_PROTOCOL" "https")
+    HCL_DX_USERNAME=$(get_val "$EXISTING_HCL_DX_USERNAME" "wpsadmin")
+    HCL_DX_PASSWORD="$EXISTING_HCL_DX_PASSWORD"
+    HCL_DX_WCM_LIBRARY=$(get_val "$EXISTING_HCL_DX_WCM_LIBRARY" "Web Content")
+    HCL_DX_DAM_BASE_URL=$(grep "^HCL_DX_DAM_BASE_URL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+    HCL_DX_WCM_BASE_URL=$(grep "^HCL_DX_WCM_BASE_URL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
     
     print_success "HCL DX already configured"
     echo -e "  Host: ${CYAN}${HCL_DX_HOST}:${HCL_DX_PORT}${NC}"
@@ -963,18 +948,20 @@ fi  # End of HCL DX configuration else block
 print_step "AI Image Generation (Optional)"
 
 # Initialize AI provider variables with existing values or defaults
-AI_IMAGE_PROVIDER=$(get_config "AI_IMAGE_PROVIDER" "pollinations")
-OPENAI_API_KEY=$(get_config "OPENAI_API_KEY" "")
-STABILITY_API_KEY=$(get_config "STABILITY_API_KEY" "")
-GOOGLE_AI_API_KEY=$(get_config "GOOGLE_AI_API_KEY" "")
-HUGGINGFACE_API_KEY=$(get_config "HUGGINGFACE_API_KEY" "")
-POLLINATIONS_API_KEY=$(get_config "POLLINATIONS_API_KEY" "")
-CLOUDFLARE_ACCOUNT_ID=$(get_config "CLOUDFLARE_ACCOUNT_ID" "")
-CLOUDFLARE_API_TOKEN=$(get_config "CLOUDFLARE_API_TOKEN" "")
-CLOUDFLARE_AI_MODEL=$(get_config "CLOUDFLARE_AI_MODEL" "@cf/black-forest-labs/flux-1-schnell")
-HUGGINGFACE_MODEL=$(get_config "HUGGINGFACE_MODEL" "black-forest-labs/FLUX.1-schnell")
+AI_IMAGE_PROVIDER=$(get_val "$EXISTING_AI_IMAGE_PROVIDER" "pollinations")
+OPENAI_API_KEY=$(grep "^OPENAI_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+STABILITY_API_KEY=$(grep "^STABILITY_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+GOOGLE_AI_API_KEY=$(grep "^GOOGLE_AI_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+HUGGINGFACE_API_KEY=$(grep "^HUGGINGFACE_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+POLLINATIONS_API_KEY=$(grep "^POLLINATIONS_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+CLOUDFLARE_ACCOUNT_ID=$(grep "^CLOUDFLARE_ACCOUNT_ID=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+CLOUDFLARE_API_TOKEN=$(grep "^CLOUDFLARE_API_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+CLOUDFLARE_AI_MODEL=$(grep "^CLOUDFLARE_AI_MODEL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+CLOUDFLARE_AI_MODEL=${CLOUDFLARE_AI_MODEL:-"@cf/black-forest-labs/flux-1-schnell"}
+HUGGINGFACE_MODEL=$(grep "^HUGGINGFACE_MODEL=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 | xargs)
+HUGGINGFACE_MODEL=${HUGGINGFACE_MODEL:-"black-forest-labs/FLUX.1-schnell"}
 
-if is_configured "AI_IMAGE_PROVIDER" && [ "$RECONFIGURE" != true ]; then
+if is_valid_value "$EXISTING_AI_IMAGE_PROVIDER" && [ "$RECONFIGURE" != true ]; then
     print_success "AI provider already configured: ${AI_IMAGE_PROVIDER}"
     CONFIGURE_AI=false
 else
@@ -1083,12 +1070,12 @@ fi  # End of AI configuration else block
 print_section "SSL/HTTPS Configuration"
 
 # Initialize SSL variables with existing values
-SSL_ENABLED=$(get_config "SSL_ENABLED" "false")
-SSL_TYPE=$(get_config "SSL_TYPE" "none")
-SSL_DOMAIN=$(get_config "SSL_DOMAIN" "${APP_HOSTNAME}")
-FRONTEND_SSL_PORT=$(get_config "FRONTEND_SSL_PORT" "443")
+SSL_ENABLED=$(get_val "$EXISTING_SSL_ENABLED" "false")
+SSL_TYPE=$(get_val "$EXISTING_SSL_TYPE" "none")
+SSL_DOMAIN=$(get_val "$EXISTING_SSL_DOMAIN" "${APP_HOSTNAME}")
+FRONTEND_SSL_PORT=$(get_val "$EXISTING_FRONTEND_SSL_PORT" "443")
 
-if is_configured "SSL_TYPE" && [ "$SSL_TYPE" != "none" ] && [ "$RECONFIGURE" != true ]; then
+if is_valid_value "$EXISTING_SSL_TYPE" && [ "$SSL_TYPE" != "none" ] && [ "$RECONFIGURE" != true ]; then
     print_success "SSL already configured: ${SSL_TYPE}"
     echo -e "  Domain: ${CYAN}${SSL_DOMAIN}${NC}"
 else
