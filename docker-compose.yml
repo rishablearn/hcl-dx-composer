@@ -15,11 +15,11 @@ services:
       LDAP_TLS: "false"
       LDAP_TLS_VERIFY_CLIENT: never
       LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"
-      LDAP_SEED_INTERNAL_LDIF_PATH: /container/service/slapd/assets/config/bootstrap/ldif/custom
+      LDAP_SEED_INTERNAL_LDIF_PATH: /ldif-custom
     volumes:
       - openldap_data:/var/lib/ldap
       - openldap_config:/etc/ldap/slapd.d
-      - ./ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
+      - ./ldap/bootstrap:/ldif-custom:ro
     ports:
       - "${LDAP_PORT:-389}:389"
     networks:
