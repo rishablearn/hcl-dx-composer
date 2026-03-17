@@ -604,24 +604,30 @@ class DxService {
    * Get WCM API URL
    */
   getWcmApiUrl() {
-    // WCM REST API default path
+    // WCM REST API default path - use /wps/mycontenthandler for authenticated access
     const wcmPath = this.wcmBaseUrl || '/wps/mycontenthandler/wcmrest';
-    return `${this.getBaseUrl()}${wcmPath}`;
+    const url = `${this.getBaseUrl()}${wcmPath}`;
+    logger.debug(`WCM API URL: ${url}`);
+    return url;
   }
 
   /**
    * Create WCM client with proper authentication
+   * WCM REST API requires Basic Auth or LTPA token
    */
   createWcmClient(authToken) {
     const headers = {
-      'Accept': 'application/json',
+      'Accept': 'application/json, application/atom+xml',
       'Content-Type': 'application/json'
     };
 
-    // Always include Basic Auth
+    // Always include Basic Auth for server-to-server calls
     if (this.username && this.password) {
       const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
       headers['Authorization'] = `Basic ${auth}`;
+      logger.debug(`WCM Auth: Using Basic Auth for user ${this.username}`);
+    } else {
+      logger.warn('WCM Auth: No credentials configured!');
     }
 
     // Additionally include LTPA token if provided
@@ -629,13 +635,15 @@ class DxService {
       headers['Cookie'] = `LtpaToken2=${authToken}`;
     }
 
-    logger.debug(`Creating WCM client for: ${this.getWcmApiUrl()}`);
+    const wcmUrl = this.getWcmApiUrl();
+    logger.info(`Creating WCM client for: ${wcmUrl}`);
 
     return axios.create({
-      baseURL: this.getWcmApiUrl(),
+      baseURL: wcmUrl,
       headers,
       timeout: 60000,
       httpsAgent: httpsAgent,
+      // Don't throw on 4xx errors so we can handle them
       validateStatus: (status) => status < 500
     });
   }
@@ -646,24 +654,45 @@ class DxService {
   async getLibraries(authToken) {
     const reqId = Date.now();
     logger.info(`[${reqId}] WCM API: GET /Library`);
+    logger.info(`[${reqId}] WCM URL: ${this.getWcmApiUrl()}/Library`);
     
     try {
       const client = this.createWcmClient(authToken);
       const response = await client.get('/Library');
       
-      logger.debug(`[${reqId}] Response status: ${response.status}`);
+      logger.info(`[${reqId}] Response status: ${response.status}`);
+      logger.debug(`[${reqId}] Response headers:`, JSON.stringify(response.headers));
       
       if (response.status === 401) {
-        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+        logger.error(`[${reqId}] 401 Unauthorized - Check HCL_DX_USERNAME and HCL_DX_PASSWORD`);
+        throw new Error(`HCL DX authentication failed: 401 Unauthorized. Verify credentials for user: ${this.username}`);
+      }
+      
+      if (response.status === 403) {
+        logger.error(`[${reqId}] 403 Forbidden - User may lack WCM permissions`);
+        throw new Error(`HCL DX access denied: 403 Forbidden. User ${this.username} may lack WCM permissions.`);
+      }
+      
+      if (response.status === 404) {
+        logger.error(`[${reqId}] 404 Not Found - WCM API path may be incorrect`);
+        throw new Error(`WCM API not found at ${this.getWcmApiUrl()}/Library. Check HCL_DX_WCM_BASE_URL setting.`);
       }
       
       if (response.status !== 200) {
-        throw new Error(`Failed to get libraries: ${response.status}`);
+        logger.error(`[${reqId}] Unexpected status: ${response.status}`, response.data);
+        throw new Error(`Failed to get libraries: ${response.status} - ${JSON.stringify(response.data)}`);
       }
       
+      logger.info(`[${reqId}] Successfully fetched WCM libraries`);
       return response.data;
     } catch (error) {
       logger.error(`[${reqId}] Error fetching WCM libraries:`, error.message);
+      if (error.code === 'ECONNREFUSED') {
+        throw new Error(`Cannot connect to HCL DX at ${this.getBaseUrl()}. Check HCL_DX_HOST and network connectivity.`);
+      }
+      if (error.code === 'ENOTFOUND') {
+        throw new Error(`HCL DX host not found: ${this.host}. Check HCL_DX_HOST setting.`);
+      }
       throw error;
     }
   }
@@ -1063,38 +1092,87 @@ class DxService {
   }
 
   /**
-   * Test connection to HCL DX
+   * Test connection to HCL DX (both DAM and WCM)
    */
   async testConnection() {
     const reqId = Date.now();
     logger.info(`[${reqId}] Testing HCL DX connection...`);
     
-    try {
-      if (!this.isConfigured()) {
-        return {
-          success: false,
-          error: 'HCL DX not configured',
-          details: 'Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD'
-        };
-      }
+    const result = {
+      success: false,
+      host: this.host,
+      port: this.port,
+      protocol: this.protocol,
+      username: this.username,
+      configured: this.isConfigured(),
+      dam: { tested: false, success: false, error: null },
+      wcm: { tested: false, success: false, error: null }
+    };
 
+    if (!this.isConfigured()) {
+      result.error = 'HCL DX not configured';
+      result.details = 'Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD';
+      return result;
+    }
+
+    // Test DAM API
+    try {
+      logger.info(`[${reqId}] Testing DAM API at ${this.getDamApiUrl()}`);
       const collections = await this.getCollections();
-      
-      return {
+      result.dam = {
+        tested: true,
         success: true,
-        host: this.host,
         collectionsCount: collections.contents?.length || 0,
-        message: `Connected to ${this.host} - Found ${collections.contents?.length || 0} collections`
+        url: this.getDamApiUrl()
       };
     } catch (error) {
-      logger.error(`[${reqId}] Connection test failed:`, error.message);
-      return {
+      logger.error(`[${reqId}] DAM test failed:`, error.message);
+      result.dam = {
+        tested: true,
         success: false,
-        host: this.host,
         error: error.message,
-        details: error.response?.data || null
+        url: this.getDamApiUrl()
       };
     }
+
+    // Test WCM API
+    try {
+      logger.info(`[${reqId}] Testing WCM API at ${this.getWcmApiUrl()}`);
+      const client = this.createWcmClient();
+      const response = await client.get('/Library');
+      
+      if (response.status === 200) {
+        result.wcm = {
+          tested: true,
+          success: true,
+          librariesCount: response.data?.feed?.entry?.length || 0,
+          url: this.getWcmApiUrl()
+        };
+      } else {
+        result.wcm = {
+          tested: true,
+          success: false,
+          status: response.status,
+          error: `HTTP ${response.status}`,
+          url: this.getWcmApiUrl()
+        };
+      }
+    } catch (error) {
+      logger.error(`[${reqId}] WCM test failed:`, error.message);
+      result.wcm = {
+        tested: true,
+        success: false,
+        error: error.message,
+        url: this.getWcmApiUrl()
+      };
+    }
+
+    result.success = result.dam.success || result.wcm.success;
+    result.message = result.success 
+      ? `Connected to ${this.host}` 
+      : `Connection failed to ${this.host}`;
+
+    return result;
   }
 
   /**
