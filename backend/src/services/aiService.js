@@ -13,8 +13,21 @@ class AIService {
   constructor() {
     this.openaiApiKey = process.env.OPENAI_API_KEY;
     this.stabilityApiKey = process.env.STABILITY_API_KEY;
-    this.defaultProvider = process.env.AI_IMAGE_PROVIDER || 'openai';
     this.uploadPath = process.env.UPLOAD_PATH || path.join(__dirname, '../../uploads');
+    
+    // Set default provider based on available API keys
+    const configuredProvider = process.env.AI_IMAGE_PROVIDER;
+    if (configuredProvider === 'openai' && this.openaiApiKey) {
+      this.defaultProvider = 'openai';
+    } else if (configuredProvider === 'stability' && this.stabilityApiKey) {
+      this.defaultProvider = 'stability';
+    } else if (configuredProvider === 'pollinations' || !this.openaiApiKey) {
+      this.defaultProvider = 'pollinations'; // Free fallback
+    } else {
+      this.defaultProvider = 'pollinations';
+    }
+    
+    logger.info(`AI Service initialized with default provider: ${this.defaultProvider}`);
   }
 
   /**
@@ -121,6 +134,49 @@ class AIService {
   }
 
   /**
+   * Generate image using Pollinations AI (FREE - no API key required)
+   */
+  async generateWithPollinations(prompt, options = {}) {
+    // Parse size string if provided
+    let width = options.width || 1024;
+    let height = options.height || 1024;
+    
+    if (options.size && typeof options.size === 'string' && options.size.includes('x')) {
+      const [w, h] = options.size.split('x').map(Number);
+      if (w && h) {
+        width = w;
+        height = h;
+      }
+    }
+
+    const model = options.model || 'flux';
+    const seed = options.seed || Math.floor(Math.random() * 1000000);
+
+    try {
+      logger.info(`Generating image with Pollinations AI (model: ${model}): "${prompt.substring(0, 50)}..."`);
+
+      // Pollinations uses URL-based API - encode the prompt
+      const encodedPrompt = encodeURIComponent(prompt);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&model=${model}&seed=${seed}&nologo=true`;
+
+      logger.info(`Pollinations URL: ${imageUrl}`);
+
+      // For Pollinations, we just return the URL - it generates on first access
+      // The image will be generated when downloaded
+      return [{
+        url: imageUrl,
+        seed,
+        model,
+        width,
+        height
+      }];
+    } catch (error) {
+      logger.error('Pollinations AI generation failed:', error.message);
+      throw new Error('Pollinations image generation failed - ' + error.message);
+    }
+  }
+
+  /**
    * Generate image using the configured provider
    */
   async generateImage(prompt, options = {}) {
@@ -132,8 +188,12 @@ class AIService {
         return this.generateWithDallE(prompt, options);
       case 'stability':
         return this.generateWithStability(prompt, options);
+      case 'pollinations':
+        return this.generateWithPollinations(prompt, options);
       default:
-        throw new Error(`Unknown AI provider: ${provider}`);
+        // Fallback to Pollinations if unknown provider
+        logger.warn(`Unknown provider ${provider}, falling back to Pollinations`);
+        return this.generateWithPollinations(prompt, options);
     }
   }
 
@@ -239,20 +299,31 @@ class AIService {
    */
   getAvailableProviders() {
     return {
+      pollinations: {
+        available: true, // Always available - no API key required
+        name: 'Pollinations AI (Free)',
+        models: ['flux', 'turbo', 'flux-realism', 'flux-anime', 'flux-3d', 'any-dark', 'flux-pro'],
+        sizes: ['1024x1024', '1280x720', '720x1280', '512x512'],
+        styles: ['default'],
+        description: 'Free AI image generation - no API key required'
+      },
       openai: {
         available: !!this.openaiApiKey,
         name: 'OpenAI DALL-E 3',
         models: ['dall-e-3'],
         sizes: ['1024x1024', '1792x1024', '1024x1792'],
-        styles: ['vivid', 'natural']
+        styles: ['vivid', 'natural'],
+        description: 'High quality images - requires API key'
       },
       stability: {
         available: !!this.stabilityApiKey,
         name: 'Stability AI SDXL',
         models: ['stable-diffusion-xl-1024-v1-0'],
         sizes: ['1024x1024', '1152x896', '896x1152', '1216x832', '832x1216'],
-        styles: ['photographic', 'digital-art', 'anime', 'comic-book', 'fantasy-art', 'line-art', 'cinematic']
-      }
+        styles: ['photographic', 'digital-art', 'anime', 'comic-book', 'fantasy-art', 'line-art', 'cinematic'],
+        description: 'Professional quality - requires API key'
+      },
+      default: this.defaultProvider
     };
   }
 

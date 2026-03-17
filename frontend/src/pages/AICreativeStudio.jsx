@@ -33,8 +33,9 @@ const STYLE_PRESETS = [
 
 const SIZE_OPTIONS = [
   { id: '1024x1024', name: 'Square (1:1)', description: '1024×1024' },
-  { id: '1792x1024', name: 'Landscape (16:9)', description: '1792×1024' },
-  { id: '1024x1792', name: 'Portrait (9:16)', description: '1024×1792' }
+  { id: '1280x720', name: 'Landscape (16:9)', description: '1280×720' },
+  { id: '720x1280', name: 'Portrait (9:16)', description: '720×1280' },
+  { id: '512x512', name: 'Small Square', description: '512×512' }
 ];
 
 const QUALITY_OPTIONS = [
@@ -57,7 +58,8 @@ export default function AICreativeStudio() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [providers, setProviders] = useState({});
-  const [selectedProvider, setSelectedProvider] = useState('openai');
+  const [selectedProvider, setSelectedProvider] = useState('pollinations');
+  const [selectedModel, setSelectedModel] = useState('flux');
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [addToDAM, setAddToDAM] = useState(true);
@@ -74,14 +76,18 @@ export default function AICreativeStudio() {
     try {
       const response = await api.get('/ai/providers');
       setProviders(response.data);
-      // Set default provider based on availability
-      if (response.data.openai?.available) {
-        setSelectedProvider('openai');
-      } else if (response.data.stability?.available) {
-        setSelectedProvider('stability');
+      // Set default provider from API response
+      const defaultProvider = response.data.default || 'pollinations';
+      setSelectedProvider(defaultProvider);
+      // Set default model for the provider
+      if (response.data[defaultProvider]?.models?.length > 0) {
+        setSelectedModel(response.data[defaultProvider].models[0]);
       }
     } catch (err) {
       console.error('Failed to load AI providers:', err);
+      // Fallback to pollinations if API fails
+      setSelectedProvider('pollinations');
+      setSelectedModel('flux');
     }
   };
 
@@ -132,17 +138,22 @@ export default function AICreativeStudio() {
 
     try {
       const endpoint = addToDAM ? '/ai/generate-and-stage' : '/ai/generate';
+      const [width, height] = selectedSize.split('x').map(Number);
       const response = await api.post(endpoint, {
         prompt: finalPrompt.trim(),
         provider: selectedProvider,
+        model: selectedModel,
         size: selectedSize,
+        width,
+        height,
         quality: selectedQuality,
         style: selectedStyle,
         collection_id: selectedCollection || null,
-        tags: [selectedStyle, 'ai-generated'],
+        tags: [selectedStyle, 'ai-generated', selectedProvider],
         metadata: {
           style: selectedStyle,
-          originalPrompt: prompt
+          originalPrompt: prompt,
+          model: selectedModel
         }
       });
 
@@ -259,6 +270,79 @@ export default function AICreativeStudio() {
                 <p className="text-sm text-neutral-700">{enhancedPrompt}</p>
               </div>
             )}
+          </div>
+
+          {/* AI Provider & Model Selection */}
+          <div className="card p-6">
+            <label className="block text-sm font-medium text-navy-800 mb-3">
+              🤖 AI Provider & Model
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Provider Selection */}
+              <div>
+                <label className="block text-xs text-neutral-500 mb-2">Select Provider</label>
+                <div className="space-y-2">
+                  {Object.entries(providers).filter(([key]) => key !== 'default').map(([key, provider]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        if (provider.available) {
+                          setSelectedProvider(key);
+                          if (provider.models?.length > 0) {
+                            setSelectedModel(provider.models[0]);
+                          }
+                        }
+                      }}
+                      disabled={!provider.available}
+                      className={clsx(
+                        'w-full p-3 rounded-lg border-2 text-left transition-all',
+                        !provider.available && 'opacity-50 cursor-not-allowed',
+                        selectedProvider === key
+                          ? 'border-secondary-500 bg-secondary-50'
+                          : 'border-neutral-200 hover:border-neutral-300'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm text-navy-800">{provider.name}</span>
+                        {provider.available ? (
+                          <span className="text-xs px-2 py-0.5 bg-success-100 text-success-700 rounded-full">Available</span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 bg-error-100 text-error-700 rounded-full">No API Key</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-neutral-500 block mt-1">{provider.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Model Selection */}
+              <div>
+                <label className="block text-xs text-neutral-500 mb-2">Select Model</label>
+                {providers[selectedProvider]?.models?.length > 0 ? (
+                  <div className="space-y-2">
+                    {providers[selectedProvider].models.map((model) => (
+                      <button
+                        key={model}
+                        onClick={() => setSelectedModel(model)}
+                        className={clsx(
+                          'w-full p-3 rounded-lg border-2 text-left transition-all',
+                          selectedModel === model
+                            ? 'border-primary-500 bg-primary-50'
+                            : 'border-neutral-200 hover:border-neutral-300'
+                        )}
+                      >
+                        <span className="font-medium text-sm text-navy-800">{model}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-neutral-50 rounded-lg text-sm text-neutral-500">
+                    Select a provider to see available models
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Style Selection */}
