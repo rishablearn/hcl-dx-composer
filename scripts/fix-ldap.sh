@@ -4,9 +4,9 @@
 #===============================================================================
 # This script fixes ALL LDAP issues:
 # 1. Creates OUs if missing
-# 2. Creates users with correct passwords
-# 3. Verifies authentication works
-# 4. Tests backend can connect
+# 2. Creates users WITHOUT passwords first
+# 3. Sets passwords using ldappasswd (proper hashing)
+# 4. Verifies authentication works
 #===============================================================================
 
 set -e
@@ -21,6 +21,7 @@ CONTAINER_NAME="hcl-dx-openldap"
 LDAP_ADMIN_PASSWORD="${LDAP_ADMIN_PASSWORD:-admin_password}"
 BASE_DN="dc=hcldx,dc=local"
 ADMIN_DN="cn=admin,${BASE_DN}"
+USER_PASSWORD="password"
 
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${CYAN}  HCL DX Composer - Complete LDAP Fix${NC}"
@@ -81,7 +82,7 @@ EOF
 
 echo -e "${GREEN}✓ OUs created${NC}"
 
-# Create users
+# Create users WITHOUT passwords first
 echo -e "${YELLOW}Creating users...${NC}"
 docker exec -i ${CONTAINER_NAME} ldapadd -x -H ldap://localhost -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" -c << 'EOF'
 dn: uid=admin,ou=Users,dc=hcldx,dc=local
@@ -98,7 +99,6 @@ gidNumber: 1000
 homeDirectory: /home/admin
 loginShell: /bin/bash
 mail: admin@hcldx.local
-userPassword: password
 
 dn: uid=author,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -114,7 +114,6 @@ gidNumber: 1001
 homeDirectory: /home/author
 loginShell: /bin/bash
 mail: author@hcldx.local
-userPassword: password
 
 dn: uid=reviewer,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -130,7 +129,6 @@ gidNumber: 1002
 homeDirectory: /home/reviewer
 loginShell: /bin/bash
 mail: reviewer@hcldx.local
-userPassword: password
 
 dn: uid=publisher,ou=Users,dc=hcldx,dc=local
 objectClass: inetOrgPerson
@@ -146,10 +144,21 @@ gidNumber: 1003
 homeDirectory: /home/publisher
 loginShell: /bin/bash
 mail: publisher@hcldx.local
-userPassword: password
 EOF
 
 echo -e "${GREEN}✓ Users created${NC}"
+
+# Set passwords using ldappasswd (proper SSHA hashing)
+echo -e "${YELLOW}Setting user passwords...${NC}"
+for uid in admin author reviewer publisher; do
+    docker exec ${CONTAINER_NAME} ldappasswd -x -H ldap://localhost \
+        -D "${ADMIN_DN}" -w "${LDAP_ADMIN_PASSWORD}" \
+        -s "${USER_PASSWORD}" \
+        "uid=${uid},ou=Users,${BASE_DN}"
+    echo -e "  Set password for ${uid}"
+done
+
+echo -e "${GREEN}✓ Passwords set${NC}"
 
 # Create groups
 echo -e "${YELLOW}Creating groups...${NC}"
