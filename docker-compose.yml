@@ -66,6 +66,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      DEBUG: ${DEBUG:-*}
       # Server Hostname
       APP_HOSTNAME: ${APP_HOSTNAME:-localhost}
       # Database Configuration
