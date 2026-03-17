@@ -16,6 +16,64 @@ const { uploadSingle, uploadMultiple, UPLOAD_PATH } = require('../middleware/upl
 const logger = require('../config/logger');
 
 /**
+ * GET /api/dam/diagnostic
+ * Check upload system health
+ */
+router.get('/diagnostic', async (req, res) => {
+  const checks = {
+    uploadPath: UPLOAD_PATH,
+    uploadPathExists: false,
+    uploadPathWritable: false,
+    dbConnected: false,
+    sharpWorking: false,
+    error: null
+  };
+
+  try {
+    // Check upload directory
+    checks.uploadPathExists = fs.existsSync(UPLOAD_PATH);
+    if (checks.uploadPathExists) {
+      try {
+        const testFile = path.join(UPLOAD_PATH, '.write-test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        checks.uploadPathWritable = true;
+      } catch (e) {
+        checks.error = `Upload path not writable: ${e.message}`;
+      }
+    } else {
+      try {
+        fs.mkdirSync(UPLOAD_PATH, { recursive: true });
+        checks.uploadPathExists = true;
+        checks.uploadPathWritable = true;
+      } catch (e) {
+        checks.error = `Cannot create upload path: ${e.message}`;
+      }
+    }
+
+    // Check database
+    try {
+      await db.query('SELECT 1');
+      checks.dbConnected = true;
+    } catch (e) {
+      checks.error = `DB error: ${e.message}`;
+    }
+
+    // Check sharp
+    try {
+      await sharp({ create: { width: 10, height: 10, channels: 3, background: 'red' } }).png().toBuffer();
+      checks.sharpWorking = true;
+    } catch (e) {
+      checks.error = `Sharp error: ${e.message}`;
+    }
+
+    res.json(checks);
+  } catch (error) {
+    res.status(500).json({ ...checks, error: error.message });
+  }
+});
+
+/**
  * GET /api/dam/assets
  * Get all staged assets with optional filtering
  */
