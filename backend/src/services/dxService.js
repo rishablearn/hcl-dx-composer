@@ -53,6 +53,8 @@ class DxService {
     logger.info(`Username: ${this.username}`);
     logger.info(`Password: ${this.password ? '***SET***' : 'NOT SET'}`);
     logger.info(`DAM API: ${this.getDamApiUrl()}`);
+    logger.info(`WCM API: ${this.getWcmApiUrl()}`);
+    logger.info(`WCM Base URL (raw env): ${this.wcmBaseUrl || '(not set, using default /wps/mycontenthandler/wcmrest)'}`);
     logger.info(`Configured: ${this.isConfigured()}`);
     logger.info('=====================================');
   }
@@ -715,8 +717,17 @@ class DxService {
    */
   getWcmApiUrl() {
     // WCM REST API default path - use /wps/mycontenthandler for authenticated access
-    const wcmPath = this.wcmBaseUrl || '/wps/mycontenthandler/wcmrest';
-    const url = `${this.getBaseUrl()}${wcmPath}`;
+    const wcmBaseUrl = this.wcmBaseUrl || '/wps/mycontenthandler/wcmrest';
+    
+    // If wcmBaseUrl is already a full URL (starts with http:// or https://), use it directly
+    // Otherwise treat it as a path and prepend the base URL
+    let url;
+    if (wcmBaseUrl.startsWith('http://') || wcmBaseUrl.startsWith('https://')) {
+      url = wcmBaseUrl;
+    } else {
+      url = `${this.getBaseUrl()}${wcmBaseUrl}`;
+    }
+    
     logger.debug(`WCM API URL: ${url}`);
     return url;
   }
@@ -766,15 +777,16 @@ class DxService {
    */
   async getLibraries(authToken) {
     const reqId = Date.now();
+    const wcmUrl = this.getWcmApiUrl();
     logger.info(`[${reqId}] WCM API: GET /Library`);
-    logger.info(`[${reqId}] WCM URL: ${this.getWcmApiUrl()}/Library`);
+    logger.info(`[${reqId}] WCM URL: ${wcmUrl}/Library`);
     
     try {
       const client = await this.createWcmClient(authToken);
       const response = await client.get('/Library');
       
       logger.info(`[${reqId}] Response status: ${response.status}`);
-      logger.debug(`[${reqId}] Response headers:`, JSON.stringify(response.headers));
+      logger.debug(`[${reqId}] Response content-type: ${response.headers['content-type']}`);
       
       if (response.status === 401) {
         logger.error(`[${reqId}] 401 Unauthorized - Check HCL_DX_USERNAME and HCL_DX_PASSWORD`);
@@ -788,7 +800,8 @@ class DxService {
       
       if (response.status === 404) {
         logger.error(`[${reqId}] 404 Not Found - WCM API path may be incorrect`);
-        throw new Error(`WCM API not found at ${this.getWcmApiUrl()}/Library. Check HCL_DX_WCM_BASE_URL setting.`);
+        logger.error(`[${reqId}] Attempted URL: ${wcmUrl}/Library`);
+        throw new Error(`WCM API not found at ${wcmUrl}/Library. Check HCL_DX_WCM_BASE_URL setting. Current value: "${this.wcmBaseUrl || '(not set)'}"`);
       }
       
       if (response.status !== 200) {
@@ -796,8 +809,22 @@ class DxService {
         throw new Error(`Failed to get libraries: ${response.status} - ${JSON.stringify(response.data)}`);
       }
       
-      logger.info(`[${reqId}] Successfully fetched WCM libraries`);
-      return response.data;
+      // Handle response - WCM REST API may return XML string instead of parsed JSON
+      let data = response.data;
+      if (typeof data === 'string') {
+        logger.warn(`[${reqId}] WCM API returned string response (likely XML). Content-type: ${response.headers['content-type']}`);
+        // Try to parse as JSON in case it's a JSON string
+        try {
+          data = JSON.parse(data);
+        } catch (parseErr) {
+          logger.error(`[${reqId}] Response is not JSON. First 500 chars: ${data.substring(0, 500)}`);
+          throw new Error(`WCM API returned non-JSON response. The API may require 'Accept: application/json' header or the URL may be incorrect. URL: ${wcmUrl}/Library`);
+        }
+      }
+      
+      const entryCount = data?.feed?.entry?.length || 0;
+      logger.info(`[${reqId}] Successfully fetched ${entryCount} WCM libraries`);
+      return data;
     } catch (error) {
       logger.error(`[${reqId}] Error fetching WCM libraries:`, error.message);
       if (error.code === 'ECONNREFUSED') {
