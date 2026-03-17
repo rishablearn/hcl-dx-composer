@@ -43,6 +43,39 @@ const QUALITY_OPTIONS = [
   { id: 'hd', name: 'HD', description: 'Higher detail' }
 ];
 
+// Stability AI specific style presets
+const STABILITY_STYLE_PRESETS = [
+  { id: 'photographic', name: 'Photographic', description: 'Realistic photo style' },
+  { id: '3d-model', name: '3D Model', description: '3D rendered look' },
+  { id: 'analog-film', name: 'Analog Film', description: 'Classic film aesthetic' },
+  { id: 'anime', name: 'Anime', description: 'Japanese animation style' },
+  { id: 'cinematic', name: 'Cinematic', description: 'Movie-like quality' },
+  { id: 'comic-book', name: 'Comic Book', description: 'Comic illustration style' },
+  { id: 'digital-art', name: 'Digital Art', description: 'Digital painting style' },
+  { id: 'enhance', name: 'Enhance', description: 'Enhanced details' },
+  { id: 'fantasy-art', name: 'Fantasy Art', description: 'Fantasy illustration' },
+  { id: 'isometric', name: 'Isometric', description: 'Isometric view style' },
+  { id: 'line-art', name: 'Line Art', description: 'Clean line drawings' },
+  { id: 'low-poly', name: 'Low Poly', description: 'Low polygon 3D style' },
+  { id: 'neon-punk', name: 'Neon Punk', description: 'Cyberpunk neon aesthetic' },
+  { id: 'origami', name: 'Origami', description: 'Paper folding style' },
+  { id: 'pixel-art', name: 'Pixel Art', description: 'Retro pixel graphics' },
+  { id: 'tile-texture', name: 'Tile Texture', description: 'Seamless texture' }
+];
+
+// Stability AI size options (must be multiples of 64)
+const STABILITY_SIZE_OPTIONS = [
+  { id: '1024x1024', name: 'Square (1:1)', description: '1024×1024' },
+  { id: '1152x896', name: 'Landscape (4:3)', description: '1152×896' },
+  { id: '896x1152', name: 'Portrait (3:4)', description: '896×1152' },
+  { id: '1216x832', name: 'Wide (3:2)', description: '1216×832' },
+  { id: '832x1216', name: 'Tall (2:3)', description: '832×1216' },
+  { id: '1344x768', name: 'Cinematic (16:9)', description: '1344×768' },
+  { id: '768x1344', name: 'Mobile (9:16)', description: '768×1344' },
+  { id: '640x1536', name: 'Ultra Tall', description: '640×1536' },
+  { id: '1536x640', name: 'Ultra Wide', description: '1536×640' }
+];
+
 export default function AICreativeStudio() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -52,6 +85,11 @@ export default function AICreativeStudio() {
   const [selectedStyle, setSelectedStyle] = useState('corporate');
   const [selectedSize, setSelectedSize] = useState('1024x1024');
   const [selectedQuality, setSelectedQuality] = useState('standard');
+  
+  // Stability AI specific options
+  const [stabilityStyle, setStabilityStyle] = useState('photographic');
+  const [stabilitySteps, setStabilitySteps] = useState(30);
+  const [stabilityCfgScale, setStabilityCfgScale] = useState(7);
   const [generating, setGenerating] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [generatedImages, setGeneratedImages] = useState([]);
@@ -139,7 +177,8 @@ export default function AICreativeStudio() {
     try {
       const endpoint = addToDAM ? '/ai/generate-and-stage' : '/ai/generate';
       const [width, height] = selectedSize.split('x').map(Number);
-      const response = await api.post(endpoint, {
+      // Build request with provider-specific options
+      const requestBody = {
         prompt: finalPrompt.trim(),
         provider: selectedProvider,
         model: selectedModel,
@@ -155,7 +194,20 @@ export default function AICreativeStudio() {
           originalPrompt: prompt,
           model: selectedModel
         }
-      });
+      };
+
+      // Add Stability AI specific options
+      if (selectedProvider === 'stability') {
+        requestBody.steps = stabilitySteps;
+        requestBody.cfgScale = stabilityCfgScale;
+        requestBody.style = stabilityStyle;
+        requestBody.tags = [stabilityStyle, 'ai-generated', selectedProvider];
+        requestBody.metadata.stabilityStyle = stabilityStyle;
+        requestBody.metadata.steps = stabilitySteps;
+        requestBody.metadata.cfgScale = stabilityCfgScale;
+      }
+
+      const response = await api.post(endpoint, requestBody);
 
       if (addToDAM) {
         setGeneratedImages(response.data.assets.map(asset => ({
@@ -345,7 +397,108 @@ export default function AICreativeStudio() {
             </div>
           </div>
 
-          {/* Style Selection */}
+          {/* Stability AI Specific Options */}
+          {selectedProvider === 'stability' && (
+            <div className="card p-6 border-2 border-purple-200 bg-purple-50/30">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">🎨</span>
+                <label className="text-sm font-medium text-navy-800">
+                  Stability AI Options
+                </label>
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                  SDXL 1.0
+                </span>
+              </div>
+
+              {/* Stability Style Preset */}
+              <div className="mb-4">
+                <label className="block text-xs text-neutral-500 mb-2">Style Preset</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {STABILITY_STYLE_PRESETS.map((style) => (
+                    <button
+                      key={style.id}
+                      onClick={() => setStabilityStyle(style.id)}
+                      className={clsx(
+                        'p-2 rounded-lg border text-left transition-all text-sm',
+                        stabilityStyle === style.id
+                          ? 'border-purple-500 bg-purple-100'
+                          : 'border-neutral-200 hover:border-purple-300 bg-white'
+                      )}
+                    >
+                      <span className="font-medium text-navy-800 block">{style.name}</span>
+                      <span className="text-xs text-neutral-500">{style.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Stability Size Options */}
+              <div className="mb-4">
+                <label className="block text-xs text-neutral-500 mb-2">Image Size (SDXL optimized)</label>
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                  {STABILITY_SIZE_OPTIONS.map((size) => (
+                    <button
+                      key={size.id}
+                      onClick={() => setSelectedSize(size.id)}
+                      className={clsx(
+                        'p-2 rounded-lg border text-center transition-all text-sm',
+                        selectedSize === size.id
+                          ? 'border-purple-500 bg-purple-100'
+                          : 'border-neutral-200 hover:border-purple-300 bg-white'
+                      )}
+                    >
+                      <span className="font-medium text-navy-800 block text-xs">{size.name}</span>
+                      <span className="text-xs text-neutral-500">{size.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Steps & CFG Scale */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-2">
+                    Steps: {stabilitySteps}
+                    <span className="text-neutral-400 ml-1">(10-50, higher = more detail)</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="10"
+                    max="50"
+                    value={stabilitySteps}
+                    onChange={(e) => setStabilitySteps(Number(e.target.value))}
+                    className="w-full h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-xs text-neutral-400 mt-1">
+                    <span>Fast (10)</span>
+                    <span>Detailed (50)</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-2">
+                    CFG Scale: {stabilityCfgScale}
+                    <span className="text-neutral-400 ml-1">(1-15, how closely to follow prompt)</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="15"
+                    value={stabilityCfgScale}
+                    onChange={(e) => setStabilityCfgScale(Number(e.target.value))}
+                    className="w-full h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-xs text-neutral-400 mt-1">
+                    <span>Creative (1)</span>
+                    <span>Precise (15)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Style Selection (for non-Stability providers) */}
+          {selectedProvider !== 'stability' && (
           <div className="card p-6">
             <label className="block text-sm font-medium text-navy-800 mb-3">
               {t('ai.styleLabel', 'Creative Style')}
@@ -369,8 +522,10 @@ export default function AICreativeStudio() {
               ))}
             </div>
           </div>
+          )}
 
-          {/* Size & Quality */}
+          {/* Size & Quality (for non-Stability providers) */}
+          {selectedProvider !== 'stability' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="card p-4">
               <label className="block text-sm font-medium text-navy-800 mb-2">
@@ -432,6 +587,7 @@ export default function AICreativeStudio() {
               </div>
             </div>
           </div>
+          )}
 
           {/* DAM Integration Toggle */}
           <div className="card p-4">
