@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { configApi, damApi } from '../services/api';
+import { configApi, damApi, wcmApi } from '../services/api';
 import {
   Settings as SettingsIcon,
   Users,
@@ -331,36 +331,24 @@ export default function Settings() {
   const loadWcmLibraries = async () => {
     setLoadingWcm(true);
     try {
-      // Use a timeout to avoid hanging when DX is configured but unreachable
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('WCM API timeout')), 10000)
-      );
-      const response = await Promise.race([
-        damApi.getWcmLibraries(),
-        timeoutPromise
-      ]);
-      // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
-      const entries = response.data?.items || response.data?.feed?.entry || [];
-      if (entries.length > 0) {
-        setWcmLibraries(entries);
-      } else {
-        // API returned empty - use demo data
-        setWcmLibraries(getWcmMockLibraries());
+      // Try the WCM API route first (returns WCM API v2 format with demo data fallback)
+      let response;
+      try {
+        response = await wcmApi.getLibraries();
+      } catch {
+        // Fallback to DAM WCM route
+        response = await damApi.getWcmLibraries();
       }
+      // WCM API v2 format: { items: [{id, title: {lang, value}, name, type: "Library", ...}], total }
+      const entries = response.data?.items || response.data?.feed?.entry || [];
+      setWcmLibraries(entries);
     } catch (error) {
       console.error('Failed to load WCM libraries:', error);
-      // Use mock data for demo when DX is not connected
-      setWcmLibraries(getWcmMockLibraries());
+      setWcmLibraries([]);
     } finally {
       setLoadingWcm(false);
     }
   };
-
-  const getWcmMockLibraries = () => [
-    { id: 'lib-1', title: { value: 'Web Content' }, name: 'Web Content' },
-    { id: 'lib-2', title: { value: 'Marketing Content' }, name: 'Marketing Content' },
-    { id: 'lib-3', title: { value: 'Intranet Content' }, name: 'Intranet Content' },
-  ];
 
   const getMappingsForRole = (role) => {
     return roleMappings.filter(m => m.app_role === role);
@@ -604,25 +592,36 @@ export default function Settings() {
               </div>
             ) : wcmLibraries.length === 0 ? (
               <p className="text-sm text-neutral-400 text-center py-8">
-                No WCM libraries found. Click "Refresh" to retry.
+                No WCM libraries found. Click "Load Libraries" to retry.
               </p>
             ) : (
               <div className="space-y-2">
                 {wcmLibraries.map((library, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                  <div key={library.id || index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <FileText className="w-5 h-5 text-primary-500" />
                       <div>
                         <p className="font-medium text-navy-800">
-                          {typeof library.title === 'string' ? library.title : library.title?.value || library.name}
+                          {library.displayTitle || (typeof library.title === 'string' ? library.title : library.title?.value) || library.name || 'Untitled'}
                         </p>
                         <p className="text-xs text-neutral-500">
-                          {(library.id || '').replace(/^wcmrest:/, '')}
+                          ID: {(library.id || '').replace(/^wcmrest:/, '')}
+                          {library.type && <span className="ml-2">• {library.type}</span>}
+                          {library.data?.enabled !== undefined && (
+                            <span className={`ml-2 ${library.data.enabled ? 'text-success-600' : 'text-neutral-400'}`}>
+                              • {library.data.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>
                   </div>
                 ))}
+                {wcmLibraries[0]?._demo && (
+                  <p className="text-xs text-amber-500 mt-2 text-center">
+                    Demo data — Connect to HCL DX to load real WCM libraries
+                  </p>
+                )}
               </div>
             )}
           </div>

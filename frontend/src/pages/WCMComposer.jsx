@@ -267,53 +267,44 @@ export default function WCMComposer() {
     }
   };
 
-  const getMockLibraries = () => [
-    { id: 'lib-1', title: { value: 'Web Content' }, name: 'Web Content' },
-    { id: 'lib-2', title: { value: 'Marketing Content' }, name: 'Marketing Content' },
-  ];
-
-  const getMockTemplatesData = () => ({
-    authoringTemplates: [
-      { id: 'at-1', title: { value: 'Article' }, elements: [
-        { name: 'headline', type: 'text', label: 'Headline', required: true },
-        { name: 'summary', type: 'textarea', label: 'Summary' },
-        { name: 'body', type: 'rich_text', label: 'Body Content', required: true },
-        { name: 'author', type: 'text', label: 'Author Name' },
-        { name: 'publishDate', type: 'date', label: 'Publish Date' },
-        { name: 'featuredImage', type: 'image', label: 'Featured Image' },
-      ]},
-      { id: 'at-2', title: { value: 'News Item' }, elements: [
-        { name: 'title', type: 'text', label: 'Title', required: true },
-        { name: 'content', type: 'rich_text', label: 'Content', required: true },
-        { name: 'category', type: 'select', label: 'Category', options: ['Company News', 'Industry', 'Events'] },
-      ]},
-    ],
-    workflows: [
-      { id: 'wf-1', title: { value: 'Standard Approval' }, stages: ['Draft', 'Review', 'Approved', 'Published'] },
-    ],
-    presentationTemplates: [
-      { id: 'pt-1', title: { value: 'Article Layout' } },
-      { id: 'pt-2', title: { value: 'News Layout' } },
-    ],
-  });
-
-  const apiWithTimeout = (promise, ms = 10000) => {
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('API timeout')), ms)
-    );
-    return Promise.race([promise, timeout]);
+  /**
+   * Convert WCM API v2 template data object to form elements array.
+   * WCM API v2 format: data: { elementName: { name, title: {lang, value}, type, data: {type, value} } }
+   * Converts type names like ShortTextComponent → text, RichTextComponent → rich_text, etc.
+   */
+  const convertV2DataToElements = (data) => {
+    if (!data || typeof data !== 'object') return [];
+    return Object.values(data).filter(el => el && el.name).map(el => {
+      const wcmType = el.type || '';
+      let formType = 'text';
+      if (wcmType.includes('RichText') || wcmType.includes('HTML')) formType = 'rich_text';
+      else if (wcmType.includes('Text') && !wcmType.includes('Short')) formType = 'textarea';
+      else if (wcmType.includes('ShortText')) formType = 'text';
+      else if (wcmType.includes('Numeric') || wcmType.includes('Number')) formType = 'number';
+      else if (wcmType.includes('Date')) formType = 'date';
+      else if (wcmType.includes('Image')) formType = 'image';
+      else if (wcmType.includes('File')) formType = 'file';
+      else if (wcmType.includes('Link')) formType = 'link';
+      else if (wcmType.includes('OptionSelection')) formType = 'select';
+      else if (wcmType.includes('UserSelection')) formType = 'text';
+      return {
+        name: el.name,
+        type: formType,
+        label: el.title?.value || el.name,
+        required: false,
+      };
+    });
   };
 
   const loadLibraries = async () => {
     try {
-      const response = await apiWithTimeout(wcmApi.getLibraries());
-      // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
+      const response = await wcmApi.getLibraries();
+      // WCM API v2 format: { items: [{id, title: {lang, value}, name, type, ...}], total }
       const entries = response.data?.items || response.data?.feed?.entry || [];
-      setLibraries(entries.length > 0 ? entries : getMockLibraries());
+      setLibraries(entries);
     } catch (error) {
       console.error('Failed to load libraries:', error);
-      // Use mock data for demo
-      setLibraries(getMockLibraries());
+      setLibraries([]);
     } finally {
       setLoading(false);
     }
@@ -327,33 +318,24 @@ export default function WCMComposer() {
     setSelectedWorkflow(null);
     setSelectedPT(null);
     setTemplateDetails(null);
+    setAuthoringTemplates([]);
+    setWorkflows([]);
+    setPresentationTemplates([]);
     setLoading(true);
     
     try {
-      const [atResponse, wfResponse, ptResponse] = await apiWithTimeout(
-        Promise.all([
-          wcmApi.getAuthoringTemplates(libId),
-          wcmApi.getWorkflows(libId),
-          wcmApi.getPresentationTemplates(libId),
-        ])
-      );
+      // Backend returns WCM API v2 format: { items: [...], total }
+      const [atResponse, wfResponse, ptResponse] = await Promise.all([
+        wcmApi.getAuthoringTemplates(libId),
+        wcmApi.getWorkflows(libId),
+        wcmApi.getPresentationTemplates(libId),
+      ]);
       
-      // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
-      const at = atResponse.data?.items || atResponse.data?.feed?.entry || [];
-      const wf = wfResponse.data?.items || wfResponse.data?.feed?.entry || [];
-      const pt = ptResponse.data?.items || ptResponse.data?.feed?.entry || [];
-
-      const mock = getMockTemplatesData();
-      setAuthoringTemplates(at.length > 0 ? at : mock.authoringTemplates);
-      setWorkflows(wf.length > 0 ? wf : mock.workflows);
-      setPresentationTemplates(pt.length > 0 ? pt : mock.presentationTemplates);
+      setAuthoringTemplates(atResponse.data?.items || []);
+      setWorkflows(wfResponse.data?.items || []);
+      setPresentationTemplates(ptResponse.data?.items || []);
     } catch (error) {
-      console.error('Failed to load templates:', error);
-      // Mock data for demo
-      const mock = getMockTemplatesData();
-      setAuthoringTemplates(mock.authoringTemplates);
-      setWorkflows(mock.workflows);
-      setPresentationTemplates(mock.presentationTemplates);
+      console.error('Failed to load templates/workflows:', error);
     } finally {
       setLoading(false);
       setStep(2);
@@ -363,20 +345,24 @@ export default function WCMComposer() {
   const handleTemplateSelect = async (template) => {
     const tmplId = extractWcmId(template);
     const tmplName = extractWcmName(template);
-    setSelectedTemplate({ id: tmplId, name: tmplName, elements: template.elements });
+    // Convert WCM API v2 data object to form elements
+    const elementsFromData = template.data ? convertV2DataToElements(template.data) : [];
+    setSelectedTemplate({ id: tmplId, name: tmplName, elements: elementsFromData });
     setLoading(true);
     
     try {
-      const response = await apiWithTimeout(wcmApi.getAuthoringTemplateDetails(tmplId));
-      setTemplateDetails(response.data);
+      const response = await wcmApi.getAuthoringTemplateDetails(tmplId);
+      const details = response.data;
+      // WCM API v2 returns template with data object containing element definitions
+      if (details?.data && typeof details.data === 'object') {
+        const detailElements = convertV2DataToElements(details.data);
+        setTemplateDetails({ ...details, elements: detailElements });
+      } else {
+        setTemplateDetails({ ...details, elements: details?.elements || elementsFromData });
+      }
     } catch (error) {
-      // Use mock elements
-      setTemplateDetails({
-        elements: template.elements || [
-          { name: 'title', type: 'text', label: 'Title', required: true },
-          { name: 'body', type: 'rich_text', label: 'Body', required: true },
-        ]
-      });
+      // Use elements already extracted from the template list response
+      setTemplateDetails({ elements: elementsFromData });
     } finally {
       setLoading(false);
       setStep(3);
@@ -526,26 +512,48 @@ export default function WCMComposer() {
         </div>
       )}
 
-      {/* Step 1: Library Selection */}
+      {/* Step 1: Library Selection - Dropdown */}
       {step === 1 && !isEditing && (
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-navy-800 mb-4">Select WCM Library</h2>
+          <h2 className="text-lg font-semibold text-navy-800 mb-4">
+            <BookOpen className="w-5 h-5 inline-block mr-2 text-secondary-500" />
+            Select WCM Library
+          </h2>
+          <p className="text-sm text-neutral-500 mb-4">
+            Choose a library from HCL DX Web Content Manager to begin creating content.
+          </p>
           {libraries.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {libraries.map((lib) => (
-                <button
-                  key={extractWcmId(lib)}
-                  onClick={() => handleLibrarySelect(lib)}
-                  className={clsx(
-                    'card p-6 text-left hover:border-secondary-500 hover:shadow-md transition-all',
-                    selectedLibrary && selectedLibrary.id === extractWcmId(lib) && 'border-secondary-500 ring-2 ring-secondary-200'
-                  )}
-                >
-                  <BookOpen className="w-8 h-8 text-secondary-500 mb-3" />
-                  <h3 className="font-semibold text-navy-800">{extractWcmName(lib)}</h3>
-                  <p className="text-sm text-neutral-500 mt-1">Click to select this library</p>
-                </button>
-              ))}
+            <div className="max-w-md">
+              <label className="block text-sm font-medium text-navy-800 mb-2">
+                WCM Library <span className="text-error-500">*</span>
+              </label>
+              <select
+                value=""
+                onChange={(e) => {
+                  const lib = libraries.find(l => extractWcmId(l) === e.target.value);
+                  if (lib) handleLibrarySelect(lib);
+                }}
+                className="input-field text-base"
+              >
+                <option value="">-- Select a Library --</option>
+                {libraries.map((lib) => (
+                  <option key={extractWcmId(lib)} value={extractWcmId(lib)}>
+                    {extractWcmName(lib)}
+                  </option>
+                ))}
+              </select>
+              {libraries[0]?.data && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Available Libraries</p>
+                  {libraries.map((lib) => (
+                    <div key={extractWcmId(lib)} className="flex items-center gap-2 text-sm text-neutral-600 py-1">
+                      <BookOpen className="w-4 h-4 text-secondary-400 flex-shrink-0" />
+                      <span>{extractWcmName(lib)}</span>
+                      <span className="text-xs text-neutral-400 ml-auto">{lib.type || 'Library'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8">
@@ -578,21 +586,32 @@ export default function WCMComposer() {
           </div>
 
           <div className="card p-6">
-            <h2 className="text-lg font-semibold text-navy-800 mb-4">Select Authoring Template</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {authoringTemplates.map((at) => (
-                <button
-                  key={extractWcmId(at)}
-                  onClick={() => handleTemplateSelect(at)}
-                  className="card p-6 text-left hover:border-secondary-500 hover:shadow-md transition-all"
-                >
-                  <Layout className="w-8 h-8 text-secondary-500 mb-3" />
-                  <h3 className="font-semibold text-navy-800">{extractWcmName(at)}</h3>
-                  <p className="text-sm text-neutral-500 mt-1">
-                    {at.elements?.length || 0} elements
-                  </p>
-                </button>
-              ))}
+            <h2 className="text-lg font-semibold text-navy-800 mb-4">
+              <Layout className="w-5 h-5 inline-block mr-2 text-secondary-500" />
+              Select Authoring Template
+            </h2>
+            <div className="max-w-md">
+              <label className="block text-sm font-medium text-navy-800 mb-2">
+                Authoring Template <span className="text-error-500">*</span>
+              </label>
+              <select
+                value=""
+                onChange={(e) => {
+                  const at = authoringTemplates.find(t => extractWcmId(t) === e.target.value);
+                  if (at) handleTemplateSelect(at);
+                }}
+                className="input-field text-base"
+              >
+                <option value="">-- Select a Template --</option>
+                {authoringTemplates.map((at) => {
+                  const elementCount = at.data ? Object.keys(at.data).length : (at.elements?.length || 0);
+                  return (
+                    <option key={extractWcmId(at)} value={extractWcmId(at)}>
+                      {extractWcmName(at)} ({elementCount} elements)
+                    </option>
+                  );
+                })}
+              </select>
             </div>
           </div>
 

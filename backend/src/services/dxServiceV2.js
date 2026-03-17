@@ -26,7 +26,7 @@ class DxServiceV2 {
     // API Base URLs
     this.ringApiBase = '/dx/api/core/v1';
     this.damApiBase = '/dx/api/dam/v1';
-    this.wcmApiBase = '/dx/api/wcm/v1';
+    this.wcmApiBase = '/dx/api/wcm/v2';
     
     // Legacy WCM REST API (fallback)
     this.wcmRestBase = process.env.HCL_DX_WCM_BASE_URL || '/wps/mycontenthandler/wcmrest';
@@ -395,19 +395,17 @@ class DxServiceV2 {
       const accessType = 'dxmyrest'; // Must be authenticated
       const client = this.createClient(authToken);
       
+      // Per HCL DX WCM API v2 docs: POST /contents
+      // Uses libraryID, templateID, parentID (uppercase ID suffix)
       const payload = {
         name: contentData.name || contentData.title,
         title: { value: contentData.title, lang: 'en' },
         description: contentData.description ? { value: contentData.description, lang: 'en' } : undefined,
-        libraryId: contentData.libraryId,
-        authoringTemplateId: contentData.authoringTemplateId,
-        parentId: contentData.parentId,
-        workflowId: contentData.workflowId,
-        content: {
-          content: {
-            elements: this.transformElementsForRingApi(contentData.elements)
-          }
-        }
+        type: 'Content',
+        libraryID: contentData.libraryId,
+        templateID: contentData.authoringTemplateId,
+        parentID: contentData.parentId,
+        data: this.transformElementsForWcmV2(contentData.elements)
       };
 
       const response = await client.post(
@@ -491,7 +489,46 @@ class DxServiceV2 {
   }
 
   /**
-   * Transform elements to Ring API format
+   * Transform elements to WCM API v2 format per documentation.
+   * WCM API v2 uses a data object keyed by element name:
+   * { "elementName": { name, title: {lang, value}, type, data: {type, value} } }
+   */
+  transformElementsForWcmV2(elements) {
+    if (!elements) return {};
+    
+    const data = {};
+    const entries = Array.isArray(elements) ? elements : Object.entries(elements);
+    
+    for (const item of entries) {
+      let name, value;
+      if (Array.isArray(item)) {
+        [name, value] = item;
+      } else if (item.name) {
+        name = item.name;
+        value = item.value || item.data?.value || '';
+      } else {
+        continue;
+      }
+      
+      const elementType = this.inferElementType(value);
+      const dataType = elementType === 'RichTextComponent' || elementType === 'HTMLComponent' 
+        ? 'text/html' : 'text/plain';
+      
+      data[name] = {
+        name,
+        title: { lang: 'en', value: name },
+        type: elementType,
+        data: {
+          type: dataType,
+          value: typeof value === 'object' ? (value.value || JSON.stringify(value)) : String(value)
+        }
+      };
+    }
+    return data;
+  }
+
+  /**
+   * Transform elements to Ring API format (legacy helper)
    */
   transformElementsForRingApi(elements) {
     if (!elements) return [];
