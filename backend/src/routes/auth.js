@@ -181,6 +181,41 @@ router.post('/sso/validate', async (req, res) => {
 });
 
 /**
+ * GET /api/auth/ldap/status
+ * Get LDAP connection status and diagnostics (for debugging)
+ */
+router.get('/ldap/status', async (req, res) => {
+  try {
+    const status = {
+      configured: ldapService.isConfigured(),
+      mode: process.env.LDAP_MODE || 'local',
+      url: process.env.LDAP_URL ? process.env.LDAP_URL.replace(/\/\/.*:.*@/, '//***:***@') : 'not set',
+      baseDN: process.env.LDAP_BASE_DN || 'not set',
+      userSearchBase: process.env.LDAP_USER_SEARCH_BASE || process.env.LDAP_BASE_DN || 'not set',
+      bindDN: process.env.LDAP_BIND_DN || 'not set',
+      connection: 'unknown'
+    };
+
+    if (ldapService.isConfigured()) {
+      try {
+        await ldapService.testConnection();
+        status.connection = 'connected';
+      } catch (err) {
+        status.connection = 'failed';
+        status.connectionError = err.message;
+      }
+    } else {
+      status.connection = 'not configured';
+    }
+
+    res.json(status);
+  } catch (error) {
+    logger.error('LDAP status error:', error);
+    res.status(500).json({ error: 'Failed to get LDAP status', details: error.message });
+  }
+});
+
+/**
  * GET /api/auth/ldap/groups
  * Get available LDAP groups (admin only)
  */
