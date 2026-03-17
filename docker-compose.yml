@@ -105,6 +105,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       STABILITY_API_KEY: ${STABILITY_API_KEY:-}
       AI_IMAGE_PROVIDER: ${AI_IMAGE_PROVIDER:-pollinations}
+      # HCL DX DAM API Authentication
+      HCL_DX_USERNAME: ${HCL_DX_USERNAME:-wpsadmin}
+      HCL_DX_PASSWORD: ${HCL_DX_PASSWORD:-}
     volumes:
       - ./uploads:/var/uploads
     ports:
