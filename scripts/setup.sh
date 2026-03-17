@@ -1486,8 +1486,7 @@ FRONTEND_SSL_PORT=${FRONTEND_SSL_PORT:-443}
 SSL_EMAIL=${SSL_EMAIL:-}
 EOF
 
-    print_success ".env file created successfully!"
-fi
+print_success ".env file created successfully!"
 
 #-------------------------------------------------------------------------------
 # STEP 3: Create Required Directories
