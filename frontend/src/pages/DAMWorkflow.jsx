@@ -12,9 +12,13 @@ import {
   Filter,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Send,
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import toast from 'react-hot-toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import WorkflowStepper from '../components/WorkflowStepper';
 
@@ -26,9 +30,12 @@ const statusConfig = {
   rejected: { label: 'Rejected', color: 'badge-rejected', icon: XCircle },
 };
 
-function AssetCard({ asset }) {
+function AssetCard({ asset, onSubmit, onDelete, loading, currentUserId, isAdmin }) {
   const status = statusConfig[asset.status] || statusConfig.draft;
   const StatusIcon = status.icon;
+  const canSubmit = asset.status === 'draft';
+  const canDelete = asset.status === 'draft' || asset.status === 'rejected' || isAdmin;
+  const isOwner = asset.uploaded_by === currentUserId;
 
   return (
     <div className="card card-hover overflow-hidden">
@@ -70,15 +77,47 @@ function AssetCard({ asset }) {
         <p className="text-xs text-neutral-400 mt-2">
           By {asset.uploaded_by_name || asset.uploaded_by_username}
         </p>
+
+        {/* Actions */}
+        {(canSubmit || canDelete) && (isOwner || isAdmin) && (
+          <div className="mt-3 flex gap-2">
+            {canSubmit && isOwner && (
+              <button
+                onClick={() => onSubmit(asset.id)}
+                disabled={loading === asset.id}
+                className="btn-primary text-xs py-1.5 px-3 flex-1"
+              >
+                {loading === asset.id ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-3 h-3 mr-1" />
+                    Submit
+                  </>
+                )}
+              </button>
+            )}
+            {canDelete && (isOwner || isAdmin) && (
+              <button
+                onClick={() => onDelete(asset.id)}
+                disabled={loading === asset.id}
+                className="btn-outline text-xs py-1.5 px-3 border-error-500 text-error-500 hover:bg-error-500 hover:text-white"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default function DAMWorkflow() {
-  const { isAuthor, isApprover } = useAuth();
+  const { isAuthor, isApprover, isAdmin, user } = useAuth();
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
@@ -98,8 +137,39 @@ export default function DAMWorkflow() {
       setPagination(response.data.pagination);
     } catch (error) {
       console.error('Failed to load assets:', error);
+      toast.error('Failed to load assets');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (id) => {
+    setActionLoading(id);
+    try {
+      await damApi.submitAsset(id);
+      toast.success('Asset submitted for approval');
+      loadAssets();
+    } catch (error) {
+      console.error('Failed to submit asset:', error);
+      toast.error(error.response?.data?.error || 'Failed to submit asset');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Are you sure you want to delete this asset?')) return;
+    
+    setActionLoading(id);
+    try {
+      await damApi.deleteAsset(id);
+      toast.success('Asset deleted');
+      loadAssets();
+    } catch (error) {
+      console.error('Failed to delete asset:', error);
+      toast.error(error.response?.data?.error || 'Failed to delete asset');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -190,7 +260,15 @@ export default function DAMWorkflow() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredAssets.map((asset) => (
-              <AssetCard key={asset.id} asset={asset} />
+              <AssetCard 
+                key={asset.id} 
+                asset={asset}
+                onSubmit={handleSubmit}
+                onDelete={handleDelete}
+                loading={actionLoading}
+                currentUserId={user?.id}
+                isAdmin={isAdmin()}
+              />
             ))}
           </div>
 
