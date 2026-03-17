@@ -18,19 +18,12 @@ RUN npm ci --only=production
 # Copy application source
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p /var/uploads && chmod 755 /var/uploads
+# Create uploads directory with world-writable permissions
+# This is needed because the host volume mount overwrites container permissions
+RUN mkdir -p /var/uploads && chmod 777 /var/uploads
 
 # Expose the port
 EXPOSE 3001
 
-# Run as non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-RUN chown -R nodejs:nodejs /app /var/uploads
-
-USER nodejs
-
-# Start the server
+# Start the server (running as root to handle volume mounts)
 CMD ["node", "src/index.js"]
