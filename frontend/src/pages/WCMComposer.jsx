@@ -10,12 +10,35 @@ import {
   Layout,
   Workflow,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  BookOpen,
+  Check
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import WorkflowStepper from '../components/WorkflowStepper';
+
+/**
+ * Extract a usable WCM ID from an API response entry.
+ * HCL DX WCM REST API returns IDs as URIs like "wcmrest:UUID" in legacy Atom feeds.
+ * Ring API returns plain UUIDs.
+ */
+function extractWcmId(entry) {
+  if (!entry) return null;
+  const rawId = typeof entry === 'string' ? entry : (entry.id || entry.uuid || '');
+  return typeof rawId === 'string' ? rawId.replace(/^wcmrest:/, '') : rawId;
+}
+
+/**
+ * Extract display name from a WCM API entry.
+ * Handles both Ring API format (title as string) and legacy Atom feed format (title as { value: string }).
+ */
+function extractWcmName(entry) {
+  if (!entry) return '';
+  if (typeof entry.title === 'string') return entry.title;
+  return entry.title?.value || entry.name || '';
+}
 
 function DynamicFormField({ element, value, onChange }) {
   const { name, type, label, required, options, placeholder } = element;
@@ -247,7 +270,9 @@ export default function WCMComposer() {
   const loadLibraries = async () => {
     try {
       const response = await wcmApi.getLibraries();
-      setLibraries(response.data?.feed?.entry || []);
+      // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
+      const entries = response.data?.items || response.data?.feed?.entry || [];
+      setLibraries(entries);
     } catch (error) {
       console.error('Failed to load libraries:', error);
       // Use mock data for demo
@@ -261,19 +286,26 @@ export default function WCMComposer() {
   };
 
   const handleLibrarySelect = async (library) => {
-    setSelectedLibrary(library);
+    const libId = extractWcmId(library);
+    const libName = extractWcmName(library);
+    setSelectedLibrary({ id: libId, name: libName });
+    setSelectedTemplate(null);
+    setSelectedWorkflow(null);
+    setSelectedPT(null);
+    setTemplateDetails(null);
     setLoading(true);
     
     try {
       const [atResponse, wfResponse, ptResponse] = await Promise.all([
-        wcmApi.getAuthoringTemplates(library.id),
-        wcmApi.getWorkflows(library.id),
-        wcmApi.getPresentationTemplates(library.id),
+        wcmApi.getAuthoringTemplates(libId),
+        wcmApi.getWorkflows(libId),
+        wcmApi.getPresentationTemplates(libId),
       ]);
       
-      setAuthoringTemplates(atResponse.data?.feed?.entry || []);
-      setWorkflows(wfResponse.data?.feed?.entry || []);
-      setPresentationTemplates(ptResponse.data?.feed?.entry || []);
+      // Handle both Ring API format ({ items: [...] }) and legacy Atom feed format ({ feed: { entry: [...] } })
+      setAuthoringTemplates(atResponse.data?.items || atResponse.data?.feed?.entry || []);
+      setWorkflows(wfResponse.data?.items || wfResponse.data?.feed?.entry || []);
+      setPresentationTemplates(ptResponse.data?.items || ptResponse.data?.feed?.entry || []);
     } catch (error) {
       console.error('Failed to load templates:', error);
       // Mock data for demo
@@ -306,11 +338,13 @@ export default function WCMComposer() {
   };
 
   const handleTemplateSelect = async (template) => {
-    setSelectedTemplate(template);
+    const tmplId = extractWcmId(template);
+    const tmplName = extractWcmName(template);
+    setSelectedTemplate({ id: tmplId, name: tmplName, elements: template.elements });
     setLoading(true);
     
     try {
-      const response = await wcmApi.getAuthoringTemplateDetails(template.id);
+      const response = await wcmApi.getAuthoringTemplateDetails(tmplId);
       setTemplateDetails(response.data);
     } catch (error) {
       // Use mock elements
@@ -412,27 +446,54 @@ export default function WCMComposer() {
           <p className="text-neutral-500 mt-1">
             {isEditing ? 'Update your content item' : 'Create a new WCM content item'}
           </p>
+          {selectedLibrary && (
+            <div className="flex items-center gap-2 mt-2">
+              <BookOpen className="w-4 h-4 text-secondary-500" />
+              <span className="text-sm font-medium text-secondary-600">
+                {selectedLibrary.name}
+              </span>
+              {selectedTemplate && (
+                <>
+                  <ChevronRight className="w-3 h-3 text-neutral-400" />
+                  <span className="text-sm font-medium text-secondary-600">
+                    {selectedTemplate.name}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Step Indicator */}
       {!isEditing && (
         <div className="card p-4">
-          <div className="flex items-center justify-between max-w-2xl mx-auto">
+          <div className="flex items-center justify-between max-w-3xl mx-auto">
             {[
-              { num: 1, label: 'Select Library', icon: FileText },
-              { num: 2, label: 'Choose Template', icon: Layout },
+              { num: 1, label: 'Select Library', icon: FileText, selectedValue: selectedLibrary?.name },
+              { num: 2, label: 'Choose Template', icon: Layout, selectedValue: selectedTemplate?.name },
               { num: 3, label: 'Create Content', icon: Workflow },
             ].map((s, i) => (
               <div key={s.num} className="flex items-center">
-                <div className={clsx(
-                  'flex items-center gap-2 px-4 py-2 rounded-lg',
-                  step === s.num ? 'bg-primary-500 text-navy-800' : 
-                  step > s.num ? 'bg-success-100 text-success-700' : 'bg-neutral-100 text-neutral-500'
-                )}>
-                  <s.icon className="w-4 h-4" />
-                  <span className="font-medium text-sm">{s.label}</span>
-                </div>
+                <button
+                  type="button"
+                  disabled={step < s.num}
+                  onClick={() => { if (step > s.num) setStep(s.num); }}
+                  className={clsx(
+                    'flex items-center gap-2 px-4 py-2 rounded-lg transition-all',
+                    step === s.num ? 'bg-primary-500 text-navy-800' : 
+                    step > s.num ? 'bg-success-100 text-success-700 hover:bg-success-200 cursor-pointer' : 
+                    'bg-neutral-100 text-neutral-500 cursor-default'
+                  )}
+                >
+                  {step > s.num ? <Check className="w-4 h-4" /> : <s.icon className="w-4 h-4" />}
+                  <div className="text-left">
+                    <span className="font-medium text-sm">{s.label}</span>
+                    {step > s.num && s.selectedValue && (
+                      <span className="block text-xs opacity-75 max-w-[120px] truncate">{s.selectedValue}</span>
+                    )}
+                  </div>
+                </button>
                 {i < 2 && (
                   <ChevronRight className="w-5 h-5 mx-2 text-neutral-300" />
                 )}
@@ -446,36 +507,64 @@ export default function WCMComposer() {
       {step === 1 && !isEditing && (
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-navy-800 mb-4">Select WCM Library</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {libraries.map((lib) => (
-              <button
-                key={lib.id}
-                onClick={() => handleLibrarySelect({ id: lib.id, name: lib.title?.value || lib.name })}
-                className="card p-6 text-left hover:border-secondary-500 hover:shadow-md transition-all"
-              >
-                <FileText className="w-8 h-8 text-secondary-500 mb-3" />
-                <h3 className="font-semibold text-navy-800">{lib.title?.value || lib.name}</h3>
-                <p className="text-sm text-neutral-500 mt-1">Click to select this library</p>
-              </button>
-            ))}
-          </div>
+          {libraries.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {libraries.map((lib) => (
+                <button
+                  key={extractWcmId(lib)}
+                  onClick={() => handleLibrarySelect(lib)}
+                  className={clsx(
+                    'card p-6 text-left hover:border-secondary-500 hover:shadow-md transition-all',
+                    selectedLibrary && selectedLibrary.id === extractWcmId(lib) && 'border-secondary-500 ring-2 ring-secondary-200'
+                  )}
+                >
+                  <BookOpen className="w-8 h-8 text-secondary-500 mb-3" />
+                  <h3 className="font-semibold text-navy-800">{extractWcmName(lib)}</h3>
+                  <p className="text-sm text-neutral-500 mt-1">Click to select this library</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <AlertCircle className="w-12 h-12 mx-auto text-neutral-300 mb-3" />
+              <p className="text-neutral-500 font-medium">No WCM libraries found</p>
+              <p className="text-sm text-neutral-400 mt-1">
+                Check your HCL DX connection settings or verify WCM library access permissions.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
       {/* Step 2: Template Selection */}
       {step === 2 && !isEditing && (
         <div className="space-y-6">
+          {/* Selected Library Indicator */}
+          <div className="card p-4 bg-success-50 border-success-200">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-success-600" />
+              <span className="font-medium text-success-700">Library: {selectedLibrary?.name}</span>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="ml-auto text-sm text-success-600 hover:text-success-800 underline"
+              >
+                Change Library
+              </button>
+            </div>
+          </div>
+
           <div className="card p-6">
             <h2 className="text-lg font-semibold text-navy-800 mb-4">Select Authoring Template</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {authoringTemplates.map((at) => (
                 <button
-                  key={at.id}
-                  onClick={() => handleTemplateSelect({ id: at.id, name: at.title?.value, elements: at.elements })}
+                  key={extractWcmId(at)}
+                  onClick={() => handleTemplateSelect(at)}
                   className="card p-6 text-left hover:border-secondary-500 hover:shadow-md transition-all"
                 >
                   <Layout className="w-8 h-8 text-secondary-500 mb-3" />
-                  <h3 className="font-semibold text-navy-800">{at.title?.value || at.name}</h3>
+                  <h3 className="font-semibold text-navy-800">{extractWcmName(at)}</h3>
                   <p className="text-sm text-neutral-500 mt-1">
                     {at.elements?.length || 0} elements
                   </p>
@@ -491,14 +580,18 @@ export default function WCMComposer() {
               <select
                 value={selectedWorkflow?.id || ''}
                 onChange={(e) => {
-                  const wf = workflows.find(w => w.id === e.target.value);
-                  setSelectedWorkflow(wf);
+                  const wf = workflows.find(w => extractWcmId(w) === e.target.value);
+                  if (wf) {
+                    setSelectedWorkflow({ id: extractWcmId(wf), name: extractWcmName(wf), stages: wf.stages });
+                  } else {
+                    setSelectedWorkflow(null);
+                  }
                 }}
                 className="input-field"
               >
                 <option value="">Use default workflow</option>
                 {workflows.map((wf) => (
-                  <option key={wf.id} value={wf.id}>{wf.title?.value || wf.name}</option>
+                  <option key={extractWcmId(wf)} value={extractWcmId(wf)}>{extractWcmName(wf)}</option>
                 ))}
               </select>
             </div>
@@ -508,14 +601,18 @@ export default function WCMComposer() {
               <select
                 value={selectedPT?.id || ''}
                 onChange={(e) => {
-                  const pt = presentationTemplates.find(p => p.id === e.target.value);
-                  setSelectedPT(pt);
+                  const pt = presentationTemplates.find(p => extractWcmId(p) === e.target.value);
+                  if (pt) {
+                    setSelectedPT({ id: extractWcmId(pt), name: extractWcmName(pt) });
+                  } else {
+                    setSelectedPT(null);
+                  }
                 }}
                 className="input-field"
               >
                 <option value="">Select presentation template</option>
                 {presentationTemplates.map((pt) => (
-                  <option key={pt.id} value={pt.id}>{pt.title?.value || pt.name}</option>
+                  <option key={extractWcmId(pt)} value={extractWcmId(pt)}>{extractWcmName(pt)}</option>
                 ))}
               </select>
             </div>
@@ -575,7 +672,7 @@ export default function WCMComposer() {
                 <p><span className="text-neutral-500">Library:</span> {selectedLibrary?.name}</p>
                 <p><span className="text-neutral-500">Template:</span> {selectedTemplate?.name}</p>
                 {selectedWorkflow && (
-                  <p><span className="text-neutral-500">Workflow:</span> {selectedWorkflow.name || selectedWorkflow.title?.value}</p>
+                  <p><span className="text-neutral-500">Workflow:</span> {selectedWorkflow.name}</p>
                 )}
                 {existingContent && (
                   <p><span className="text-neutral-500">Status:</span> {existingContent.status}</p>
