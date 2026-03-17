@@ -5,6 +5,15 @@
 
 require('dotenv').config();
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION - keeping process alive:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION - keeping process alive:', reason);
+});
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');

@@ -7,8 +7,16 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
+
+// Load sharp safely - make it optional
+let sharp = null;
+try {
+  sharp = require('sharp');
+  console.log('Sharp loaded successfully');
+} catch (err) {
+  console.warn('Sharp not available - thumbnails will be disabled:', err.message);
+}
 const db = require('../config/database');
 const dxService = require('../services/dxService');
 const { authenticateToken, requireAuthor, requireApprover } = require('../middleware/auth');
@@ -60,11 +68,17 @@ router.get('/diagnostic', async (req, res) => {
     }
 
     // Check sharp
-    try {
-      await sharp({ create: { width: 10, height: 10, channels: 3, background: 'red' } }).png().toBuffer();
-      checks.sharpWorking = true;
-    } catch (e) {
-      checks.error = `Sharp error: ${e.message}`;
+    if (sharp) {
+      try {
+        await sharp({ create: { width: 10, height: 10, channels: 3, background: 'red' } }).png().toBuffer();
+        checks.sharpWorking = true;
+      } catch (e) {
+        checks.sharpWorking = false;
+        checks.sharpError = e.message;
+      }
+    } else {
+      checks.sharpWorking = false;
+      checks.sharpError = 'Sharp not loaded - thumbnails disabled';
     }
 
     res.json(checks);
@@ -190,9 +204,9 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
     
     logger.info(`Processing upload: ${file.originalname}, size: ${file.size}, type: ${file.mimetype}`);
 
-    // Generate thumbnail for images (skip if sharp fails)
+    // Generate thumbnail for images (skip if sharp not available or fails)
     let thumbnailPath = null;
-    if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
+    if (sharp && file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
       try {
         const thumbDir = path.join(UPLOAD_PATH, 'thumbnails');
         if (!fs.existsSync(thumbDir)) {
@@ -209,7 +223,6 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
         logger.debug(`Thumbnail created: ${thumbnailPath}`);
       } catch (thumbError) {
         logger.warn(`Thumbnail generation failed (continuing without): ${thumbError.message}`);
-        // Continue without thumbnail - not critical
       }
     }
 
