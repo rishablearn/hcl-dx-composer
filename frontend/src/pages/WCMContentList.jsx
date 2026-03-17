@@ -13,7 +13,13 @@ import {
   Filter,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Send,
+  ThumbsUp,
+  ThumbsDown,
+  ExternalLink,
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -27,11 +33,59 @@ const statusConfig = {
   rejected: { label: 'Rejected', color: 'badge-rejected', icon: XCircle },
 };
 
-function ContentCard({ content, onDelete, onSubmit }) {
+const WORKFLOW_STAGES = [
+  { key: 'draft', label: 'Draft', step: 1 },
+  { key: 'pending_approval', label: 'Pending Approval', step: 2 },
+  { key: 'approved', label: 'Approved', step: 3 },
+  { key: 'published', label: 'Published', step: 4 },
+];
+
+function WorkflowProgress({ currentStatus }) {
+  const currentStage = WORKFLOW_STAGES.find(s => s.key === currentStatus);
+  const currentStep = currentStage?.step || (currentStatus === 'rejected' ? 0 : 1);
+
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {WORKFLOW_STAGES.map((stage, idx) => {
+        const isComplete = currentStep > stage.step;
+        const isCurrent = currentStep === stage.step;
+        const isRejected = currentStatus === 'rejected';
+        
+        return (
+          <div key={stage.key} className="flex items-center flex-1">
+            <div
+              className={clsx(
+                'h-1.5 flex-1 rounded-full transition-colors',
+                isComplete ? 'bg-success-500' : 
+                isCurrent ? 'bg-primary-500' : 
+                isRejected ? 'bg-error-200' : 'bg-neutral-200'
+              )}
+              title={stage.label}
+            />
+            {idx < WORKFLOW_STAGES.length - 1 && <div className="w-0.5" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ContentCard({ content, onDelete, onSubmit, onApprove, onReject, onPublish, loading, currentUserId, isAdmin, isApprover }) {
   const status = statusConfig[content.status] || statusConfig.draft;
   const StatusIcon = status.icon;
+  const isOwner = content.created_by === currentUserId;
+  const isLoading = loading === content.id;
+  
   const canEdit = content.status === 'draft' || content.status === 'rejected';
-  const canSubmit = content.status === 'draft';
+  const canSubmit = content.status === 'draft' && isOwner;
+  const canApprove = content.status === 'pending_approval' && isApprover;
+  const canReject = content.status === 'pending_approval' && isApprover;
+  const canPublish = content.status === 'approved' && isApprover;
+  const canDelete = (content.status === 'draft' || content.status === 'rejected') && (isOwner || isAdmin);
+
+  const nextAction = canSubmit ? 'Submit for Approval' : 
+                     canApprove ? 'Approve' : 
+                     canPublish ? 'Publish to DX' : null;
 
   return (
     <div className="card card-hover p-5">
@@ -46,7 +100,6 @@ function ContentCard({ content, onDelete, onSubmit }) {
             <p>Library: {content.library_name}</p>
             <p>Template: {content.authoring_template_name}</p>
             <p>Created by: {content.created_by_name || content.created_by_username}</p>
-            <p>Updated: {new Date(content.updated_at).toLocaleDateString()}</p>
           </div>
         </div>
 
@@ -56,17 +109,26 @@ function ContentCard({ content, onDelete, onSubmit }) {
         </span>
       </div>
 
-      {/* Workflow stage indicator */}
-      {content.current_workflow_stage && (
-        <div className="mt-3 pt-3 border-t border-neutral-100">
-          <p className="text-xs text-neutral-400">
-            Workflow Stage: <span className="font-medium text-neutral-600">{content.current_workflow_stage}</span>
-          </p>
-        </div>
+      {/* Workflow Progress Bar */}
+      <WorkflowProgress currentStatus={content.status} />
+
+      {/* Next Action Hint */}
+      {nextAction && (
+        <p className="text-xs text-secondary-600 mt-2 flex items-center">
+          <ArrowRight className="w-3 h-3 mr-1" />
+          Next: {nextAction}
+        </p>
       )}
 
-      {/* Actions */}
-      <div className="mt-4 flex items-center gap-2">
+      {/* Rejection Reason */}
+      {content.status === 'rejected' && content.rejection_reason && (
+        <p className="text-xs text-error-600 mt-2 bg-error-50 p-2 rounded">
+          Rejected: {content.rejection_reason}
+        </p>
+      )}
+
+      {/* Workflow Actions */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         {canEdit && (
           <Link
             to={`/wcm/edit/${content.id}`}
@@ -76,14 +138,57 @@ function ContentCard({ content, onDelete, onSubmit }) {
             Edit
           </Link>
         )}
+        
+        {/* Submit */}
         {canSubmit && (
           <button
             onClick={() => onSubmit(content.id)}
-            className="btn-secondary py-1.5 px-3 text-sm"
+            disabled={isLoading}
+            className="btn-primary py-1.5 px-3 text-sm"
           >
-            Submit for Approval
+            {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (
+              <><Send className="w-3.5 h-3.5 mr-1" />Submit</>
+            )}
           </button>
         )}
+
+        {/* Approve */}
+        {canApprove && (
+          <button
+            onClick={() => onApprove(content.id)}
+            disabled={isLoading}
+            className="btn-primary py-1.5 px-3 text-sm bg-success-500 hover:bg-success-600"
+          >
+            {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (
+              <><ThumbsUp className="w-3.5 h-3.5 mr-1" />Approve</>
+            )}
+          </button>
+        )}
+
+        {/* Reject */}
+        {canReject && (
+          <button
+            onClick={() => onReject(content.id)}
+            disabled={isLoading}
+            className="btn-outline py-1.5 px-3 text-sm border-error-500 text-error-500 hover:bg-error-500 hover:text-white"
+          >
+            <ThumbsDown className="w-3.5 h-3.5 mr-1" />Reject
+          </button>
+        )}
+
+        {/* Publish */}
+        {canPublish && (
+          <button
+            onClick={() => onPublish(content.id)}
+            disabled={isLoading}
+            className="btn-secondary py-1.5 px-3 text-sm"
+          >
+            {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (
+              <><ExternalLink className="w-3.5 h-3.5 mr-1" />Publish</>
+            )}
+          </button>
+        )}
+
         <Link
           to={`/wcm/edit/${content.id}`}
           className="btn-ghost py-1.5 px-3 text-sm"
@@ -91,10 +196,14 @@ function ContentCard({ content, onDelete, onSubmit }) {
           <Eye className="w-3.5 h-3.5 mr-1" />
           View
         </Link>
-        {canEdit && (
+        
+        {/* Delete */}
+        {canDelete && (
           <button
             onClick={() => onDelete(content.id)}
-            className="btn-ghost py-1.5 px-3 text-sm text-error-500 hover:bg-error-50"
+            disabled={isLoading}
+            className="btn-ghost py-1.5 px-2 text-sm text-error-500 hover:bg-error-50"
+            title="Delete"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -105,9 +214,10 @@ function ContentCard({ content, onDelete, onSubmit }) {
 }
 
 export default function WCMContentList() {
-  const { isAuthor } = useAuth();
+  const { isAuthor, isApprover, isAdmin, user } = useAuth();
   const [content, setContent] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
@@ -134,24 +244,72 @@ export default function WCMContentList() {
   };
 
   const handleSubmit = async (id) => {
+    setActionLoading(id);
     try {
       await wcmApi.submitContent(id);
       toast.success('Content submitted for approval');
       loadContent();
     } catch (error) {
-      toast.error('Failed to submit content');
+      toast.error(error.response?.data?.error || 'Failed to submit content');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleApprove = async (id) => {
+    setActionLoading(id);
+    try {
+      await wcmApi.approveContent(id);
+      toast.success('Content approved');
+      loadContent();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to approve content');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async (id) => {
+    const reason = prompt('Enter rejection reason:');
+    if (!reason) return;
+    
+    setActionLoading(id);
+    try {
+      await wcmApi.rejectContent(id, reason);
+      toast.success('Content rejected');
+      loadContent();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to reject content');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handlePublish = async (id) => {
+    setActionLoading(id);
+    try {
+      await wcmApi.publishContent(id);
+      toast.success('Content published to HCL DX WCM');
+      loadContent();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to publish content');
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this content?')) return;
     
+    setActionLoading(id);
     try {
       await wcmApi.deleteContent(id);
       toast.success('Content deleted');
       loadContent();
     } catch (error) {
-      toast.error('Failed to delete content');
+      toast.error(error.response?.data?.error || 'Failed to delete content');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -173,6 +331,45 @@ export default function WCMContentList() {
             Create Content
           </Link>
         )}
+      </div>
+
+      {/* Workflow Stages - Interactive */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between gap-2">
+          {WORKFLOW_STAGES.map((stage, idx) => {
+            const isActive = filter === stage.key;
+            const count = content.filter(c => c.status === stage.key).length;
+            
+            return (
+              <button
+                key={stage.key}
+                onClick={() => {
+                  setFilter(isActive ? '' : stage.key);
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                className={clsx(
+                  'flex-1 p-3 rounded-lg border-2 transition-all text-center',
+                  isActive 
+                    ? 'border-primary-500 bg-primary-50' 
+                    : 'border-neutral-200 hover:border-primary-300 hover:bg-neutral-50'
+                )}
+              >
+                <p className={clsx(
+                  'text-sm font-medium',
+                  isActive ? 'text-primary-700' : 'text-neutral-600'
+                )}>
+                  {stage.label}
+                </p>
+                <p className={clsx(
+                  'text-2xl font-bold mt-1',
+                  isActive ? 'text-primary-600' : 'text-navy-800'
+                )}>
+                  {count}
+                </p>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Filters & Search */}
@@ -239,8 +436,15 @@ export default function WCMContentList() {
               <ContentCard
                 key={item.id}
                 content={item}
-                onDelete={handleDelete}
                 onSubmit={handleSubmit}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                onPublish={handlePublish}
+                onDelete={handleDelete}
+                loading={actionLoading}
+                currentUserId={user?.id}
+                isAdmin={isAdmin()}
+                isApprover={isApprover()}
               />
             ))}
           </div>

@@ -15,12 +15,15 @@ import {
   ChevronRight,
   Send,
   Trash2,
-  Loader2
+  Loader2,
+  ThumbsUp,
+  ThumbsDown,
+  ExternalLink,
+  ArrowRight
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import LoadingSpinner from '../components/LoadingSpinner';
-import WorkflowStepper from '../components/WorkflowStepper';
 
 const statusConfig = {
   draft: { label: 'Draft', color: 'badge-draft', icon: Clock },
@@ -30,12 +33,58 @@ const statusConfig = {
   rejected: { label: 'Rejected', color: 'badge-rejected', icon: XCircle },
 };
 
-function AssetCard({ asset, onSubmit, onDelete, loading, currentUserId, isAdmin }) {
+const WORKFLOW_STAGES = [
+  { key: 'draft', label: 'Draft', step: 1 },
+  { key: 'pending_approval', label: 'Pending Approval', step: 2 },
+  { key: 'approved', label: 'Approved', step: 3 },
+  { key: 'published', label: 'Published', step: 4 },
+];
+
+function WorkflowProgress({ currentStatus }) {
+  const currentStage = WORKFLOW_STAGES.find(s => s.key === currentStatus);
+  const currentStep = currentStage?.step || (currentStatus === 'rejected' ? 0 : 1);
+
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {WORKFLOW_STAGES.map((stage, idx) => {
+        const isComplete = currentStep > stage.step;
+        const isCurrent = currentStep === stage.step;
+        const isRejected = currentStatus === 'rejected';
+        
+        return (
+          <div key={stage.key} className="flex items-center flex-1">
+            <div
+              className={clsx(
+                'h-1.5 flex-1 rounded-full transition-colors',
+                isComplete ? 'bg-success-500' : 
+                isCurrent ? 'bg-primary-500' : 
+                isRejected ? 'bg-error-200' : 'bg-neutral-200'
+              )}
+              title={stage.label}
+            />
+            {idx < WORKFLOW_STAGES.length - 1 && <div className="w-0.5" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssetCard({ asset, onSubmit, onApprove, onReject, onPublish, onDelete, loading, currentUserId, isAdmin, isApprover }) {
   const status = statusConfig[asset.status] || statusConfig.draft;
   const StatusIcon = status.icon;
-  const canSubmit = asset.status === 'draft';
-  const canDelete = asset.status === 'draft' || asset.status === 'rejected' || isAdmin;
   const isOwner = asset.uploaded_by === currentUserId;
+  const isLoading = loading === asset.id;
+
+  const canSubmit = asset.status === 'draft' && isOwner;
+  const canApprove = asset.status === 'pending_approval' && isApprover;
+  const canReject = asset.status === 'pending_approval' && isApprover;
+  const canPublish = asset.status === 'approved' && isApprover;
+  const canDelete = (asset.status === 'draft' || asset.status === 'rejected') && (isOwner || isAdmin);
+
+  const nextAction = canSubmit ? 'Submit for Approval' : 
+                     canApprove ? 'Approve' : 
+                     canPublish ? 'Publish to DX' : null;
 
   return (
     <div className="card card-hover overflow-hidden">
@@ -74,40 +123,90 @@ function AssetCard({ asset, onSubmit, onDelete, loading, currentUserId, isAdmin 
         <p className="text-sm text-neutral-500 mt-1">
           {(asset.file_size / 1024).toFixed(1)} KB • {asset.mime_type?.split('/')[1]?.toUpperCase()}
         </p>
-        <p className="text-xs text-neutral-400 mt-2">
+        <p className="text-xs text-neutral-400 mt-1">
           By {asset.uploaded_by_name || asset.uploaded_by_username}
         </p>
 
-        {/* Actions */}
-        {(canSubmit || canDelete) && (isOwner || isAdmin) && (
-          <div className="mt-3 flex gap-2">
-            {canSubmit && isOwner && (
-              <button
-                onClick={() => onSubmit(asset.id)}
-                disabled={loading === asset.id}
-                className="btn-primary text-xs py-1.5 px-3 flex-1"
-              >
-                {loading === asset.id ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <>
-                    <Send className="w-3 h-3 mr-1" />
-                    Submit
-                  </>
-                )}
-              </button>
-            )}
-            {canDelete && (isOwner || isAdmin) && (
-              <button
-                onClick={() => onDelete(asset.id)}
-                disabled={loading === asset.id}
-                className="btn-outline text-xs py-1.5 px-3 border-error-500 text-error-500 hover:bg-error-500 hover:text-white"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            )}
-          </div>
+        {/* Workflow Progress Bar */}
+        <WorkflowProgress currentStatus={asset.status} />
+
+        {/* Next Action Hint */}
+        {nextAction && (
+          <p className="text-xs text-secondary-600 mt-2 flex items-center">
+            <ArrowRight className="w-3 h-3 mr-1" />
+            Next: {nextAction}
+          </p>
         )}
+
+        {/* Rejection Reason */}
+        {asset.status === 'rejected' && asset.rejection_reason && (
+          <p className="text-xs text-error-600 mt-2 bg-error-50 p-2 rounded">
+            Rejected: {asset.rejection_reason}
+          </p>
+        )}
+
+        {/* Workflow Actions */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {/* Draft Actions */}
+          {canSubmit && (
+            <button
+              onClick={() => onSubmit(asset.id)}
+              disabled={isLoading}
+              className="btn-primary text-xs py-1.5 px-3 flex-1"
+            >
+              {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : (
+                <><Send className="w-3 h-3 mr-1" />Submit</>
+              )}
+            </button>
+          )}
+
+          {/* Approval Actions */}
+          {canApprove && (
+            <button
+              onClick={() => onApprove(asset.id)}
+              disabled={isLoading}
+              className="btn-primary text-xs py-1.5 px-3 flex-1 bg-success-500 hover:bg-success-600"
+            >
+              {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : (
+                <><ThumbsUp className="w-3 h-3 mr-1" />Approve</>
+              )}
+            </button>
+          )}
+          {canReject && (
+            <button
+              onClick={() => onReject(asset.id)}
+              disabled={isLoading}
+              className="btn-outline text-xs py-1.5 px-3 border-error-500 text-error-500 hover:bg-error-500 hover:text-white"
+            >
+              <ThumbsDown className="w-3 h-3 mr-1" />Reject
+            </button>
+          )}
+
+          {/* Publish Action */}
+          {canPublish && (
+            <button
+              onClick={() => onPublish(asset.id)}
+              disabled={isLoading}
+              className="btn-secondary text-xs py-1.5 px-3 flex-1"
+            >
+              {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : (
+                <><ExternalLink className="w-3 h-3 mr-1" />Publish</>
+              )}
+            </button>
+          )}
+
+          {/* Delete Action */}
+          {canDelete && (
+            <button
+              onClick={() => onDelete(asset.id)}
+              disabled={isLoading}
+              className="btn-ghost text-xs py-1.5 px-2 text-error-500 hover:bg-error-50"
+              title="Delete"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -173,6 +272,51 @@ export default function DAMWorkflow() {
     }
   };
 
+  const handleApprove = async (id) => {
+    setActionLoading(id);
+    try {
+      await damApi.approveAsset(id);
+      toast.success('Asset approved');
+      loadAssets();
+    } catch (error) {
+      console.error('Failed to approve asset:', error);
+      toast.error(error.response?.data?.error || 'Failed to approve asset');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async (id) => {
+    const reason = prompt('Enter rejection reason:');
+    if (!reason) return;
+    
+    setActionLoading(id);
+    try {
+      await damApi.rejectAsset(id, reason);
+      toast.success('Asset rejected');
+      loadAssets();
+    } catch (error) {
+      console.error('Failed to reject asset:', error);
+      toast.error(error.response?.data?.error || 'Failed to reject asset');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handlePublish = async (id) => {
+    setActionLoading(id);
+    try {
+      await damApi.publishAsset(id);
+      toast.success('Asset published to HCL DX DAM');
+      loadAssets();
+    } catch (error) {
+      console.error('Failed to publish asset:', error);
+      toast.error(error.response?.data?.error || 'Failed to publish asset');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const filteredAssets = search
     ? assets.filter(a => a.original_filename.toLowerCase().includes(search.toLowerCase()))
     : assets;
@@ -193,11 +337,49 @@ export default function DAMWorkflow() {
         )}
       </div>
 
-      {/* Workflow Stepper */}
-      <WorkflowStepper
-        stages={['Draft', 'Pending Approval', 'Approved', 'Published']}
-        currentStage={filter ? filter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : null}
-      />
+      {/* Workflow Stages - Interactive */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between gap-2">
+          {WORKFLOW_STAGES.map((stage, idx) => {
+            const isActive = filter === stage.key;
+            const count = assets.filter(a => a.status === stage.key).length;
+            
+            return (
+              <button
+                key={stage.key}
+                onClick={() => {
+                  setFilter(isActive ? '' : stage.key);
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                className={clsx(
+                  'flex-1 p-3 rounded-lg border-2 transition-all text-center',
+                  isActive 
+                    ? 'border-primary-500 bg-primary-50' 
+                    : 'border-neutral-200 hover:border-primary-300 hover:bg-neutral-50'
+                )}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  {idx < WORKFLOW_STAGES.length - 1 && (
+                    <ArrowRight className="w-4 h-4 text-neutral-300 absolute right-0 translate-x-1/2 hidden sm:block" />
+                  )}
+                </div>
+                <p className={clsx(
+                  'text-sm font-medium',
+                  isActive ? 'text-primary-700' : 'text-neutral-600'
+                )}>
+                  {stage.label}
+                </p>
+                <p className={clsx(
+                  'text-2xl font-bold mt-1',
+                  isActive ? 'text-primary-600' : 'text-navy-800'
+                )}>
+                  {count}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Filters & Search */}
       <div className="card p-4">
@@ -264,10 +446,14 @@ export default function DAMWorkflow() {
                 key={asset.id} 
                 asset={asset}
                 onSubmit={handleSubmit}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                onPublish={handlePublish}
                 onDelete={handleDelete}
                 loading={actionLoading}
                 currentUserId={user?.id}
                 isAdmin={isAdmin()}
+                isApprover={isApprover()}
               />
             ))}
           </div>
