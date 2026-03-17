@@ -212,7 +212,33 @@ export default function MicrositeDetail() {
                 </div>
               )}
               
-              {content.dx_asset_id && (
+              {/* HCL DX DAM URL - Show when published to DX */}
+              {content.dx_asset_id && content.dx_collection_id && (
+                <div className="bg-success-50 border border-success-200 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-success-800 mb-2 flex items-center gap-2">
+                    <ExternalLink className="w-4 h-4" />
+                    Published to HCL DX DAM
+                  </h3>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-xs text-neutral-500">Collection ID:</span>
+                      <code className="text-xs bg-white px-2 py-1 rounded ml-2">{content.dx_collection_id}</code>
+                    </div>
+                    <div>
+                      <span className="text-xs text-neutral-500">Asset ID:</span>
+                      <code className="text-xs bg-white px-2 py-1 rounded ml-2">{content.dx_asset_id}</code>
+                    </div>
+                    <div className="mt-3">
+                      <span className="text-xs text-neutral-500 block mb-1">HCL DX DAM URL:</span>
+                      <code className="text-xs bg-white px-2 py-1 rounded block break-all">
+                        {`/dx/api/dam/v1/collections/${content.dx_collection_id}/items/${content.dx_asset_id}/renditions/original`}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {content.dx_asset_id && !content.dx_collection_id && (
                 <div>
                   <h3 className="text-sm font-medium text-neutral-500 mb-2">HCL DX Asset ID</h3>
                   <code className="text-sm bg-neutral-100 px-3 py-1 rounded">{content.dx_asset_id}</code>

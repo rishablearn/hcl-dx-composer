@@ -1022,4 +1022,68 @@ router.get('/dx/collections/:id/items', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/dam/dx/test
+ * Test HCL DX connection
+ */
+router.get('/dx/test', authenticateToken, async (req, res) => {
+  try {
+    const result = await dxService.testConnection();
+    res.json(result);
+  } catch (error) {
+    logger.error('Error testing DX connection:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/dam/dx/wcm/libraries
+ * Get WCM libraries from HCL DX
+ */
+router.get('/dx/wcm/libraries', authenticateToken, async (req, res) => {
+  try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({ error: 'HCL DX not configured' });
+    }
+
+    const libraries = await dxService.getLibraries();
+    res.json(libraries);
+  } catch (error) {
+    logger.error('Error fetching WCM libraries:', error);
+    res.status(500).json({ error: 'Failed to fetch WCM libraries', details: error.message });
+  }
+});
+
+/**
+ * GET /api/dam/dx/wcm/libraries/:id/templates
+ * Get authoring templates from a WCM library
+ */
+router.get('/dx/wcm/libraries/:id/templates', authenticateToken, async (req, res) => {
+  try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({ error: 'HCL DX not configured' });
+    }
+
+    const templates = await dxService.getAuthoringTemplates(req.params.id);
+    res.json(templates);
+  } catch (error) {
+    logger.error('Error fetching WCM templates:', error);
+    res.status(500).json({ error: 'Failed to fetch WCM templates', details: error.message });
+  }
+});
+
+/**
+ * GET /api/dam/dx/asset-url/:collectionId/:assetId
+ * Get the public URL for a DAM asset
+ */
+router.get('/dx/asset-url/:collectionId/:assetId', authenticateToken, async (req, res) => {
+  try {
+    const url = dxService.getAssetUrl(req.params.collectionId, req.params.assetId);
+    res.json({ url });
+  } catch (error) {
+    logger.error('Error getting asset URL:', error);
+    res.status(500).json({ error: 'Failed to get asset URL' });
+  }
+});
+
 module.exports = router;

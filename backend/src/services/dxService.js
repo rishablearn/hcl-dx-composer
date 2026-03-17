@@ -944,6 +944,88 @@ class DxService {
       throw error;
     }
   }
+
+  /**
+   * Get public DAM asset URL
+   * Returns the publicly accessible URL for a DAM asset
+   */
+  getAssetUrl(collectionId, assetId, rendition = 'original') {
+    // DAM assets are accessible via: /dx/api/dam/v1/collections/{id}/items/{id}/renditions/{rendition}
+    return `${this.getBaseUrl()}${this.damApiPath}/collections/${collectionId}/items/${assetId}/renditions/${rendition}`;
+  }
+
+  /**
+   * Test connection to HCL DX
+   */
+  async testConnection() {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] Testing HCL DX connection...`);
+    
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: 'HCL DX not configured',
+          details: 'Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD'
+        };
+      }
+
+      const collections = await this.getCollections();
+      
+      return {
+        success: true,
+        host: this.host,
+        collectionsCount: collections.contents?.length || 0,
+        message: `Connected to ${this.host} - Found ${collections.contents?.length || 0} collections`
+      };
+    } catch (error) {
+      logger.error(`[${reqId}] Connection test failed:`, error.message);
+      return {
+        success: false,
+        host: this.host,
+        error: error.message,
+        details: error.response?.data || null
+      };
+    }
+  }
+
+  /**
+   * Initialize both DAM collections and return their details
+   */
+  async initializeCollections(authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] Initializing DAM collections...`);
+    
+    const results = {
+      notApproved: null,
+      approved: null,
+      errors: []
+    };
+
+    try {
+      const notApproved = await this.getNotApprovedCollection(authToken);
+      results.notApproved = {
+        id: notApproved.id,
+        name: notApproved.name,
+        url: this.getAssetUrl(notApproved.id, '{assetId}')
+      };
+    } catch (error) {
+      results.errors.push(`Not Approved: ${error.message}`);
+    }
+
+    try {
+      const approved = await this.getApprovedCollection(authToken);
+      results.approved = {
+        id: approved.id,
+        name: approved.name,
+        url: this.getAssetUrl(approved.id, '{assetId}')
+      };
+    } catch (error) {
+      results.errors.push(`Approved: ${error.message}`);
+    }
+
+    return results;
+  }
 }
 
 module.exports = new DxService();

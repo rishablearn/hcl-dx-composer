@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { configApi } from '../services/api';
+import { configApi, damApi } from '../services/api';
 import {
   Settings as SettingsIcon,
   Users,
@@ -11,7 +11,13 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
-  RefreshCw
+  RefreshCw,
+  FolderOpen,
+  Database,
+  Image,
+  FileText,
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -191,9 +197,25 @@ export default function Settings() {
   const [dxConnection, setDxConnection] = useState(null);
   const [testingConnection, setTestingConnection] = useState(false);
 
+  // DAM Collections
+  const [dxStatus, setDxStatus] = useState(null);
+  const [damCollections, setDamCollections] = useState([]);
+  const [loadingCollections, setLoadingCollections] = useState(false);
+  const [initializingCollections, setInitializingCollections] = useState(false);
+
+  // WCM
+  const [wcmLibraries, setWcmLibraries] = useState([]);
+  const [loadingWcm, setLoadingWcm] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'dam') {
+      loadDamData();
+    }
+  }, [activeTab]);
 
   const loadData = async () => {
     setLoading(true);
@@ -254,18 +276,65 @@ export default function Settings() {
   const testDxConnection = async () => {
     setTestingConnection(true);
     try {
-      const response = await configApi.testDxConnection();
+      const response = await damApi.testConnection();
       setDxConnection(response.data);
-      if (response.data.connected) {
+      if (response.data.success) {
         toast.success('HCL DX connection successful');
       } else {
-        toast.error('HCL DX connection failed');
+        toast.error(response.data.error || 'HCL DX connection failed');
       }
     } catch (error) {
-      setDxConnection({ connected: false, message: error.message });
+      setDxConnection({ success: false, error: error.message });
       toast.error('Failed to test connection');
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const loadDamData = async () => {
+    setLoadingCollections(true);
+    try {
+      const [statusRes, collectionsRes] = await Promise.all([
+        damApi.getDxStatus(),
+        damApi.getDxCollections().catch(() => ({ data: { contents: [] } }))
+      ]);
+      setDxStatus(statusRes.data);
+      setDamCollections(collectionsRes.data?.contents || []);
+    } catch (error) {
+      console.error('Failed to load DAM data:', error);
+      setDxStatus({ configured: false, error: error.message });
+    } finally {
+      setLoadingCollections(false);
+    }
+  };
+
+  const initializeCollections = async () => {
+    setInitializingCollections(true);
+    try {
+      const response = await damApi.initCollections();
+      if (response.data.success) {
+        toast.success('DAM collections initialized successfully');
+        loadDamData();
+      } else {
+        toast.error(response.data.message || 'Failed to initialize collections');
+      }
+    } catch (error) {
+      toast.error('Failed to initialize DAM collections: ' + error.message);
+    } finally {
+      setInitializingCollections(false);
+    }
+  };
+
+  const loadWcmLibraries = async () => {
+    setLoadingWcm(true);
+    try {
+      const response = await damApi.getWcmLibraries();
+      setWcmLibraries(response.data?.feed?.entry || []);
+    } catch (error) {
+      console.error('Failed to load WCM libraries:', error);
+      toast.error('Failed to load WCM libraries');
+    } finally {
+      setLoadingWcm(false);
     }
   };
 
@@ -295,6 +364,7 @@ export default function Settings() {
       <div className="flex gap-2 border-b border-neutral-200">
         {[
           { id: 'roles', label: 'Role Mappings', icon: Users },
+          { id: 'dam', label: 'DAM & WCM', icon: Database },
           { id: 'connection', label: 'DX Connection', icon: Server },
         ].map((tab) => (
           <button
@@ -340,6 +410,207 @@ export default function Settings() {
               loading={actionLoading}
             />
           ))}
+        </div>
+      )}
+
+      {/* DAM & WCM Tab */}
+      {activeTab === 'dam' && (
+        <div className="space-y-6">
+          {/* DX Status Banner */}
+          {dxStatus && !dxStatus.configured && (
+            <div className="card p-4 bg-warning-50 border-warning-200">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-warning-600 mt-0.5" />
+                <div>
+                  <h3 className="font-medium text-navy-800">HCL DX Not Configured</h3>
+                  <p className="text-sm text-neutral-600 mt-1">
+                    {dxStatus.error || 'Configure HCL_DX_HOST, HCL_DX_USERNAME, and HCL_DX_PASSWORD in your .env file'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DAM Collections */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-navy-800">DAM Collections</h3>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Manage HCL DX Digital Asset Management collections
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={loadDamData}
+                  disabled={loadingCollections}
+                  className="btn-outline py-1.5 px-3 text-sm"
+                >
+                  {loadingCollections ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                      Refresh
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={initializeCollections}
+                  disabled={initializingCollections || !dxStatus?.configured}
+                  className="btn-primary py-1.5 px-3 text-sm"
+                >
+                  {initializingCollections ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-1" />
+                      Initialize Collections
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Required Collections Status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className={clsx(
+                'p-4 rounded-lg border-2',
+                dxStatus?.collections?.notApproved 
+                  ? 'bg-success-50 border-success-200' 
+                  : 'bg-neutral-50 border-neutral-200'
+              )}>
+                <div className="flex items-center gap-2 mb-2">
+                  {dxStatus?.collections?.notApproved ? (
+                    <CheckCircle className="w-5 h-5 text-success-600" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-neutral-400" />
+                  )}
+                  <h4 className="font-medium text-navy-800">Not Approved Assets</h4>
+                </div>
+                <p className="text-sm text-neutral-600">
+                  {dxStatus?.collections?.notApproved 
+                    ? `ID: ${dxStatus.collections.notApproved.id}`
+                    : 'Collection not created yet'}
+                </p>
+              </div>
+
+              <div className={clsx(
+                'p-4 rounded-lg border-2',
+                dxStatus?.collections?.approved 
+                  ? 'bg-success-50 border-success-200' 
+                  : 'bg-neutral-50 border-neutral-200'
+              )}>
+                <div className="flex items-center gap-2 mb-2">
+                  {dxStatus?.collections?.approved ? (
+                    <CheckCircle className="w-5 h-5 text-success-600" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-neutral-400" />
+                  )}
+                  <h4 className="font-medium text-navy-800">Approved Assets</h4>
+                </div>
+                <p className="text-sm text-neutral-600">
+                  {dxStatus?.collections?.approved 
+                    ? `ID: ${dxStatus.collections.approved.id}`
+                    : 'Collection not created yet'}
+                </p>
+              </div>
+            </div>
+
+            {/* All Collections List */}
+            <h4 className="font-medium text-navy-800 mb-3">All DAM Collections ({damCollections.length})</h4>
+            {loadingCollections ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-secondary-500" />
+              </div>
+            ) : damCollections.length === 0 ? (
+              <p className="text-sm text-neutral-400 text-center py-8">
+                No collections found. Click "Initialize Collections" to create the required collections.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {damCollections.map((collection) => (
+                  <div key={collection.id} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FolderOpen className="w-5 h-5 text-secondary-500" />
+                      <div>
+                        <p className="font-medium text-navy-800">{collection.name}</p>
+                        <p className="text-xs text-neutral-500">ID: {collection.id}</p>
+                      </div>
+                    </div>
+                    {(collection.name === 'Not Approved Assets' || collection.name === 'Approved Assets') && (
+                      <span className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded">
+                        Workflow Collection
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* WCM Libraries */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-navy-800">WCM Libraries</h3>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Web Content Manager libraries and templates
+                </p>
+              </div>
+              <button
+                onClick={loadWcmLibraries}
+                disabled={loadingWcm || !dxStatus?.configured}
+                className="btn-outline py-1.5 px-3 text-sm"
+              >
+                {loadingWcm ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    Load Libraries
+                  </>
+                )}
+              </button>
+            </div>
+
+            {loadingWcm ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-secondary-500" />
+              </div>
+            ) : wcmLibraries.length === 0 ? (
+              <p className="text-sm text-neutral-400 text-center py-8">
+                Click "Load Libraries" to fetch WCM libraries from HCL DX
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {wcmLibraries.map((library, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-primary-500" />
+                      <div>
+                        <p className="font-medium text-navy-800">{library.title || library.name}</p>
+                        <p className="text-xs text-neutral-500">{library.id}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* DAM URL Format Info */}
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-navy-800 mb-4">DAM Asset URL Format</h3>
+            <p className="text-sm text-neutral-500 mb-4">
+              Published assets will be accessible via the following URL pattern:
+            </p>
+            <div className="bg-neutral-900 rounded-lg p-4 overflow-x-auto">
+              <pre className="text-sm text-neutral-300 font-mono">
+{`${dxStatus?.host || 'your-dx-server'}/dx/api/dam/v1/collections/{collectionId}/items/{assetId}/renditions/original`}
+              </pre>
+            </div>
+          </div>
         </div>
       )}
 

@@ -67,6 +67,16 @@ export const damApi = {
   getCollections: () => api.get('/dam/collections'),
   createCollection: (data) => api.post('/dam/collections', data),
   getWorkflowStats: () => api.get('/dam/workflow-stats'),
+  // HCL DX DAM Integration
+  getDxStatus: () => api.get('/dam/dx/status'),
+  getDxCollections: () => api.get('/dam/dx/collections'),
+  getDxCollectionItems: (id, params) => api.get(`/dam/dx/collections/${id}/items`, { params }),
+  initCollections: () => api.post('/dam/dx/init-collections'),
+  testConnection: () => api.get('/dam/dx/test'),
+  getAssetUrl: (collectionId, assetId) => api.get(`/dam/dx/asset-url/${collectionId}/${assetId}`),
+  // WCM via DAM routes
+  getWcmLibraries: () => api.get('/dam/dx/wcm/libraries'),
+  getWcmTemplates: (libraryId) => api.get(`/dam/dx/wcm/libraries/${libraryId}/templates`),
 };
 
 // WCM API
