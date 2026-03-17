@@ -3,8 +3,8 @@
 # =============================================================================
 FROM node:20-alpine
 
-# Install dependencies for native modules and health checks
-RUN apk add --no-cache python3 make g++ curl
+# Install dependencies for native modules (sharp), health checks
+RUN apk add --no-cache python3 make g++ curl vips-dev
 
 # Create app directory
 WORKDIR /app

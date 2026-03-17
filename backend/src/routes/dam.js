@@ -115,14 +115,24 @@ router.get('/assets/:id', authenticateToken, async (req, res) => {
  */
 router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, async (req, res) => {
   try {
+    logger.info(`Upload request received. User: ${req.user?.username}, File: ${req.file?.originalname}`);
+    
     if (!req.file) {
+      logger.warn('Upload failed: No file in request');
       return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (!req.user || !req.user.id) {
+      logger.error('Upload failed: No user ID in request');
+      return res.status(401).json({ error: 'User not authenticated properly' });
     }
 
     const { collection_id, tags, metadata } = req.body;
     const file = req.file;
+    
+    logger.info(`Processing upload: ${file.originalname}, size: ${file.size}, type: ${file.mimetype}`);
 
-    // Generate thumbnail for images
+    // Generate thumbnail for images (skip if sharp fails)
     let thumbnailPath = null;
     if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
       try {
@@ -131,20 +141,33 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
           fs.mkdirSync(thumbDir, { recursive: true });
         }
         const thumbFilename = `thumb_${path.basename(file.filename)}`;
-        thumbnailPath = path.join(thumbDir, thumbFilename);
+        const thumbFullPath = path.join(thumbDir, thumbFilename);
         
         await sharp(file.path)
           .resize(200, 200, { fit: 'cover' })
-          .toFile(thumbnailPath);
+          .toFile(thumbFullPath);
         
         thumbnailPath = `/thumbnails/${thumbFilename}`;
+        logger.debug(`Thumbnail created: ${thumbnailPath}`);
       } catch (thumbError) {
-        logger.warn('Thumbnail generation failed:', thumbError.message);
+        logger.warn(`Thumbnail generation failed (continuing without): ${thumbError.message}`);
+        // Continue without thumbnail - not critical
       }
     }
 
     // Store relative path from UPLOAD_PATH
     const relativePath = path.relative(UPLOAD_PATH, file.path);
+    logger.debug(`File path: ${file.path}, relative: ${relativePath}`);
+
+    // Parse metadata and tags safely
+    let parsedMetadata = {};
+    let parsedTags = [];
+    try {
+      if (metadata) parsedMetadata = JSON.parse(metadata);
+      if (tags) parsedTags = JSON.parse(tags);
+    } catch (parseErr) {
+      logger.warn(`Failed to parse metadata/tags: ${parseErr.message}`);
+    }
 
     const result = await db.query(`
       INSERT INTO staged_assets (
@@ -159,8 +182,8 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
       file.size,
       '/' + relativePath,
       thumbnailPath,
-      metadata ? JSON.parse(metadata) : {},
-      tags ? JSON.parse(tags) : [],
+      parsedMetadata,
+      parsedTags,
       collection_id || null,
       req.user.id
     ]);
@@ -171,12 +194,13 @@ router.post('/assets/upload', authenticateToken, requireAuthor, uploadSingle, as
       VALUES ('asset', $1, 'upload', 'draft', $2)
     `, [result.rows[0].id, req.user.id]);
 
-    logger.info(`Asset uploaded: ${file.originalname} by ${req.user.username}`);
+    logger.info(`Asset uploaded successfully: ${file.originalname} by ${req.user.username}`);
 
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    logger.error('Error uploading asset:', error);
-    res.status(500).json({ error: 'Failed to upload asset' });
+    logger.error('Error uploading asset:', error.message);
+    logger.error('Stack:', error.stack);
+    res.status(500).json({ error: 'Failed to upload asset', details: error.message });
   }
 });
 
