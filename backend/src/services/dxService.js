@@ -6,31 +6,52 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
+const path = require('path');
 const logger = require('../config/logger');
+const db = require('../config/database');
 
+/**
+ * HCL DX Service - Handles API communication with HCL Digital Experience
+ * DAM API Reference: https://opensource.hcltechsw.com/experience-api-documentation/dam-api/
+ * WCM API Reference: https://opensource.hcltechsw.com/experience-api-documentation/wcm-api/
+ */
 class DxService {
   constructor() {
     this.host = process.env.HCL_DX_HOST;
     this.port = process.env.HCL_DX_PORT || '443';
     this.protocol = process.env.HCL_DX_PROTOCOL || 'https';
-    this.apiKey = process.env.HCL_DX_API_KEY;
-    this.damBaseUrl = process.env.HCL_DX_DAM_BASE_URL;
+    this.username = process.env.HCL_DX_USERNAME || 'wpsadmin';
+    this.password = process.env.HCL_DX_PASSWORD;
     this.wcmBaseUrl = process.env.HCL_DX_WCM_BASE_URL;
     this.defaultLibrary = process.env.HCL_DX_WCM_LIBRARY || 'Web Content';
     
-    // Log configuration status
-    if (this.isConfigured()) {
-      logger.info(`DX Service configured: ${this.getBaseUrl()}`);
-    } else {
-      logger.warn('DX Service not configured - HCL DX integration disabled');
-    }
+    // DAM API path per official docs: /dx/api/dam/v1
+    this.damApiPath = '/dx/api/dam/v1';
+    
+    // Log configuration
+    this.logConfiguration();
+  }
+
+  /**
+   * Log configuration for debugging
+   */
+  logConfiguration() {
+    logger.info('=== HCL DX Service Configuration ===');
+    logger.info(`Host: ${this.host || 'NOT SET'}`);
+    logger.info(`Port: ${this.port}`);
+    logger.info(`Protocol: ${this.protocol}`);
+    logger.info(`Username: ${this.username}`);
+    logger.info(`Password: ${this.password ? '***SET***' : 'NOT SET'}`);
+    logger.info(`DAM API: ${this.getDamApiUrl()}`);
+    logger.info(`Configured: ${this.isConfigured()}`);
+    logger.info('=====================================');
   }
 
   /**
    * Check if HCL DX is properly configured
    */
   isConfigured() {
-    return !!(this.host && (this.apiKey || this.damBaseUrl || this.wcmBaseUrl));
+    return !!(this.host && this.username && this.password);
   }
 
   /**
@@ -41,7 +62,15 @@ class DxService {
   }
 
   /**
-   * Create axios instance with authentication
+   * Get DAM API URL
+   */
+  getDamApiUrl() {
+    return `${this.getBaseUrl()}${this.damApiPath}`;
+  }
+
+  /**
+   * Create axios client with Basic Auth
+   * HCL DX DAM API supports Basic Auth with username:password
    */
   createClient(authToken) {
     const headers = {
@@ -51,16 +80,46 @@ class DxService {
 
     if (authToken) {
       headers['Cookie'] = `LtpaToken2=${authToken}`;
-    } else if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    } else if (this.username && this.password) {
+      // Use Basic Auth
+      const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${auth}`;
     }
 
+    logger.debug(`Creating client for: ${this.getDamApiUrl()}`);
+
     return axios.create({
-      baseURL: this.getBaseUrl(),
+      baseURL: this.getDamApiUrl(),
       headers,
-      timeout: 30000,
+      timeout: 60000,
       validateStatus: (status) => status < 500
     });
+  }
+
+  /**
+   * Save collection record to local database for tracking
+   */
+  async saveCollectionRecord(collection, metadata = {}) {
+    try {
+      await db.query(`
+        INSERT INTO dx_collections (dx_collection_id, name, description, collection_type, metadata, dx_created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (dx_collection_id) DO UPDATE SET
+          name = EXCLUDED.name,
+          description = EXCLUDED.description,
+          local_updated_at = NOW()
+      `, [
+        collection.id,
+        collection.name,
+        collection.description || '',
+        metadata.collectionType || 'general',
+        JSON.stringify(metadata),
+        collection.created || new Date().toISOString()
+      ]);
+      logger.debug(`Collection record saved: ${collection.name} (${collection.id})`);
+    } catch (error) {
+      logger.warn(`Failed to save collection record: ${error.message}`);
+    }
   }
 
   // ===========================================================================
@@ -69,73 +128,140 @@ class DxService {
 
   /**
    * Get all DAM collections
+   * API: GET /collections
+   * Ref: https://opensource.hcltechsw.com/experience-api-documentation/dam-api/#operation/CollectionController.find
    */
   async getCollections(authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: GET /collections`);
+    
     try {
       const client = this.createClient(authToken);
-      const response = await client.get(`${this.damBaseUrl}/collections`);
+      const response = await client.get('/collections');
       
-      if (response.status !== 200) {
-        throw new Error(`Failed to get collections: ${response.status}`);
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
+      logger.debug(`[${reqId}] Response: ${JSON.stringify(response.data).substring(0, 500)}`);
+      
+      if (response.status === 401) {
+        logger.error(`[${reqId}] 401 Unauthorized - Check HCL_DX_USERNAME/PASSWORD`);
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
       }
       
+      if (response.status !== 200) {
+        throw new Error(`Failed to get collections: ${response.status} - ${JSON.stringify(response.data)}`);
+      }
+      
+      logger.info(`[${reqId}] Found ${response.data.contents?.length || 0} collections`);
       return response.data;
     } catch (error) {
-      logger.error('Error fetching DAM collections:', error.message);
+      logger.error(`[${reqId}] Error fetching DAM collections:`, {
+        message: error.message,
+        code: error.code
+      });
       throw error;
     }
   }
 
   /**
    * Create a new DAM collection
+   * API: POST /collections
+   * Ref: https://opensource.hcltechsw.com/experience-api-documentation/dam-api/#operation/CollectionController.create
    */
-  async createCollection(name, description, metadata, authToken) {
+  async createCollection(name, description, metadata = {}, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: POST /collections - Creating "${name}"`);
+    
     try {
       const client = this.createClient(authToken);
       
+      // Request body per API spec
       const collectionData = {
-        name,
-        description,
-        metadata: {
-          ...metadata,
-          approved: 'true',
-          approvedDate: new Date().toISOString(),
-          approvedMonth: new Date().toLocaleString('default', { month: 'long' }),
-          approvedYear: new Date().getFullYear().toString()
-        }
+        name: name,
+        description: description || `Created by HCL DX Composer on ${new Date().toISOString()}`
       };
-
-      const response = await client.post(`${this.damBaseUrl}/collections`, collectionData);
       
-      if (response.status !== 201 && response.status !== 200) {
-        throw new Error(`Failed to create collection: ${response.status}`);
+      // Add keywords if provided
+      if (metadata.keywords && Array.isArray(metadata.keywords)) {
+        collectionData.keywords = metadata.keywords;
       }
 
-      logger.info(`DAM collection created: ${name}`);
-      return response.data;
+      logger.debug(`[${reqId}] Request body: ${JSON.stringify(collectionData)}`);
+      
+      const response = await client.post('/collections', collectionData);
+      
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
+      logger.debug(`[${reqId}] Response: ${JSON.stringify(response.data)}`);
+      
+      if (response.status === 401) {
+        logger.error(`[${reqId}] 401 Unauthorized - Check HCL_DX_USERNAME/PASSWORD`);
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
+      
+      if (response.status === 409) {
+        logger.warn(`[${reqId}] Collection "${name}" already exists, fetching existing...`);
+        const collections = await this.getCollections(authToken);
+        const existing = collections.contents?.find(c => c.name === name);
+        if (existing) {
+          logger.info(`[${reqId}] Found existing collection: ${existing.id}`);
+          return existing;
+        }
+      }
+      
+      if (response.status !== 201 && response.status !== 200) {
+        throw new Error(`Failed to create collection: ${response.status} - ${JSON.stringify(response.data)}`);
+      }
+
+      const collection = response.data;
+      logger.info(`[${reqId}] Collection created: ${name} (ID: ${collection.id})`);
+      
+      // Save to local DB for tracking
+      await this.saveCollectionRecord(collection, metadata);
+      
+      return collection;
     } catch (error) {
-      logger.error('Error creating DAM collection:', error.message);
+      logger.error(`[${reqId}] Error creating DAM collection:`, {
+        message: error.message,
+        code: error.code
+      });
       throw error;
     }
   }
 
   /**
    * Upload asset to DAM collection
+   * API: POST /collections/{collection_id}/items
+   * Ref: https://opensource.hcltechsw.com/experience-api-documentation/dam-api/#operation/CollectionController.createMediaItem
    */
-  async uploadAsset(collectionId, filePath, filename, mimeType, metadata, authToken) {
+  async uploadAsset(collectionId, filePath, filename, mimeType, metadata = {}, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: POST /collections/${collectionId}/items - Uploading "${filename}"`);
+    
     try {
+      // Verify file exists
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      
+      const fileStats = fs.statSync(filePath);
+      logger.debug(`[${reqId}] File size: ${fileStats.size} bytes`);
+      
       const formData = new FormData();
       formData.append('file', fs.createReadStream(filePath), {
-        filename,
+        filename: filename,
         contentType: mimeType
       });
 
-      if (metadata) {
-        formData.append('metadata', JSON.stringify({
-          ...metadata,
-          approved: 'true',
-          approvedDate: new Date().toISOString()
-        }));
+      // Add optional fields per API spec
+      if (metadata.title) {
+        formData.append('title', metadata.title);
+      }
+      if (metadata.description) {
+        formData.append('description', metadata.description);
+      }
+      if (metadata.keywords && Array.isArray(metadata.keywords)) {
+        metadata.keywords.forEach(keyword => {
+          formData.append('keywords', keyword);
+        });
       }
 
       const headers = {
@@ -145,35 +271,76 @@ class DxService {
 
       if (authToken) {
         headers['Cookie'] = `LtpaToken2=${authToken}`;
-      } else if (this.apiKey) {
-        headers['Authorization'] = `Bearer ${this.apiKey}`;
+      } else if (this.username && this.password) {
+        const auth = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+        headers['Authorization'] = `Basic ${auth}`;
       }
 
-      const response = await axios.post(
-        `${this.damBaseUrl}/collections/${collectionId}/assets`,
-        formData,
-        { headers, timeout: 60000 }
-      );
+      const url = `${this.getDamApiUrl()}/collections/${collectionId}/items`;
+      logger.debug(`[${reqId}] POST ${url}`);
+
+      const response = await axios.post(url, formData, { 
+        headers, 
+        timeout: 120000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      });
+
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
+      logger.debug(`[${reqId}] Response: ${JSON.stringify(response.data)}`);
+
+      if (response.status === 401) {
+        throw new Error('HCL DX authentication failed: 401 Unauthorized');
+      }
 
       if (response.status !== 201 && response.status !== 200) {
-        throw new Error(`Failed to upload asset: ${response.status}`);
+        throw new Error(`Failed to upload asset: ${response.status} - ${JSON.stringify(response.data)}`);
       }
 
-      logger.info(`Asset uploaded to DAM: ${filename}`);
-      return response.data;
+      const asset = response.data;
+      logger.info(`[${reqId}] Asset uploaded: ${filename} (ID: ${asset.id})`);
+      
+      // Save asset record to local DB
+      await this.saveAssetRecord(collectionId, asset, metadata);
+      
+      return asset;
     } catch (error) {
-      logger.error('Error uploading asset to DAM:', error.message);
+      logger.error(`[${reqId}] Error uploading asset:`, {
+        message: error.message,
+        code: error.code,
+        response: error.response?.status
+      });
       throw error;
     }
   }
 
   /**
+   * Save asset record to local database
+   */
+  async saveAssetRecord(collectionId, asset, metadata = {}) {
+    try {
+      await db.query(`
+        INSERT INTO dx_collection_assets (dx_collection_id, dx_asset_id, metadata)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (dx_collection_id, dx_asset_id) DO UPDATE SET
+          metadata = EXCLUDED.metadata
+      `, [collectionId, asset.id, JSON.stringify(metadata)]);
+      logger.debug(`Asset record saved: ${asset.id} in collection ${collectionId}`);
+    } catch (error) {
+      logger.warn(`Failed to save asset record: ${error.message}`);
+    }
+  }
+
+  /**
    * Set access control on DAM collection
+   * API: PUT /collections/{collection_id}/access-control
    */
   async setCollectionAccessControl(collectionId, accessControl, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: Setting access control on ${collectionId}`);
+    
     try {
       const client = this.createClient(authToken);
-      
       const aclData = {
         access: [
           { principal: accessControl.administrator || 'wpsadmin', role: 'Administrator' },
@@ -181,39 +348,39 @@ class DxService {
         ]
       };
 
-      const response = await client.put(
-        `${this.damBaseUrl}/collections/${collectionId}/access`,
-        aclData
-      );
+      const response = await client.put(`/collections/${collectionId}/access-control`, aclData);
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
 
       if (response.status !== 200) {
-        throw new Error(`Failed to set access control: ${response.status}`);
+        logger.warn(`[${reqId}] Access control returned: ${response.status}`);
       }
 
-      logger.info(`Access control set on collection: ${collectionId}`);
       return response.data;
     } catch (error) {
-      logger.error('Error setting collection access control:', error.message);
-      throw error;
+      logger.warn(`[${reqId}] Error setting access control: ${error.message}`);
+      return null;
     }
   }
 
   /**
    * Get or create a DAM collection by name
-   * Used for "Not Approved Assets" and "Approved Assets" collections
    */
   async getOrCreateCollection(name, description, metadata = {}, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] Getting or creating collection: "${name}"`);
+    
     try {
       // First, try to find existing collection
       const collections = await this.getCollections(authToken);
-      const existing = collections?.items?.find(c => c.name === name);
+      const existing = collections?.contents?.find(c => c.name === name);
       
       if (existing) {
-        logger.info(`Found existing DAM collection: ${name} (${existing.id})`);
+        logger.info(`[${reqId}] Found existing collection: ${name} (${existing.id})`);
         return existing;
       }
 
       // Create new collection if not found
+      logger.info(`[${reqId}] Collection not found, creating: ${name}`);
       const newCollection = await this.createCollection(name, description, metadata, authToken);
       
       // Set access control on new collection
@@ -224,7 +391,7 @@ class DxService {
 
       return newCollection;
     } catch (error) {
-      logger.error(`Error getting/creating collection ${name}:`, error.message);
+      logger.error(`[${reqId}] Error getting/creating collection:`, error.message);
       throw error;
     }
   }
@@ -332,33 +499,43 @@ class DxService {
 
   /**
    * Delete asset from a DAM collection
+   * API: DELETE /collections/{collection_id}/items/{item_id}
    */
   async deleteAssetFromCollection(collectionId, assetId, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: DELETE /collections/${collectionId}/items/${assetId}`);
+    
     try {
       const client = this.createClient(authToken);
-      const response = await client.delete(
-        `${this.damBaseUrl}/collections/${collectionId}/assets/${assetId}`
-      );
+      const response = await client.delete(`/collections/${collectionId}/items/${assetId}`);
+
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
 
       if (response.status !== 200 && response.status !== 204) {
         throw new Error(`Failed to delete asset: ${response.status}`);
       }
 
-      logger.info(`Asset deleted from collection: ${assetId}`);
+      logger.info(`[${reqId}] Asset deleted: ${assetId}`);
       return true;
     } catch (error) {
-      logger.error('Error deleting asset from collection:', error.message);
+      logger.error(`[${reqId}] Error deleting asset:`, error.message);
       throw error;
     }
   }
 
   /**
    * Get asset details from DAM
+   * API: GET /collections/{collection_id}/items/{item_id}
    */
-  async getAsset(assetId, authToken) {
+  async getAsset(collectionId, assetId, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: GET /collections/${collectionId}/items/${assetId}`);
+    
     try {
       const client = this.createClient(authToken);
-      const response = await client.get(`${this.damBaseUrl}/assets/${assetId}`);
+      const response = await client.get(`/collections/${collectionId}/items/${assetId}`);
+
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
 
       if (response.status !== 200) {
         throw new Error(`Failed to get asset: ${response.status}`);
@@ -366,7 +543,38 @@ class DxService {
 
       return response.data;
     } catch (error) {
-      logger.error('Error fetching asset:', error.message);
+      logger.error(`[${reqId}] Error fetching asset:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get items in a collection
+   * API: GET /collections/{collection_id}/items
+   */
+  async getCollectionItems(collectionId, options = {}, authToken) {
+    const reqId = Date.now();
+    logger.info(`[${reqId}] DAM API: GET /collections/${collectionId}/items`);
+    
+    try {
+      const client = this.createClient(authToken);
+      const params = new URLSearchParams();
+      if (options.limit) params.append('limit', options.limit);
+      if (options.offset) params.append('offset', options.offset);
+      
+      const url = `/collections/${collectionId}/items${params.toString() ? '?' + params.toString() : ''}`;
+      const response = await client.get(url);
+
+      logger.debug(`[${reqId}] Response status: ${response.status}`);
+
+      if (response.status !== 200) {
+        throw new Error(`Failed to get collection items: ${response.status}`);
+      }
+
+      logger.info(`[${reqId}] Found ${response.data.contents?.length || 0} items`);
+      return response.data;
+    } catch (error) {
+      logger.error(`[${reqId}] Error fetching collection items:`, error.message);
       throw error;
     }
   }
