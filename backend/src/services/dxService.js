@@ -113,9 +113,12 @@ class DxService {
           },
           httpsAgent: httpsAgent,
           maxRedirects: 0,
-          validateStatus: (status) => status < 500 || status === 302
+          timeout: 15000, // 15s timeout for login
+          validateStatus: () => true // Accept all status codes - we handle errors ourselves
         }
       );
+
+      logger.info(`[${reqId}] j_security_check response status: ${response.status}`);
 
       // Extract LtpaToken2 from Set-Cookie header
       const cookies = response.headers['set-cookie'];
@@ -144,9 +147,12 @@ class DxService {
           },
           httpsAgent: httpsAgent,
           maxRedirects: 5,
-          validateStatus: (status) => status < 500
+          timeout: 15000, // 15s timeout for login fallback
+          validateStatus: () => true // Accept all status codes - we handle errors ourselves
         }
       );
+
+      logger.info(`[${reqId}] Basic Auth login response status: ${basicAuthResponse.status}`);
 
       const basicCookies = basicAuthResponse.headers['set-cookie'];
       if (basicCookies) {
@@ -166,7 +172,14 @@ class DxService {
       logger.warn(`[${reqId}] Could not obtain LtpaToken2, falling back to Basic Auth for API calls`);
       return null;
     } catch (error) {
-      logger.error(`[${reqId}] Login failed:`, error.message);
+      logger.error(`[${reqId}] Login failed: ${error.message} (code: ${error.code || 'N/A'})`);
+      if (error.code === 'ENOTFOUND') {
+        logger.error(`[${reqId}] HCL DX host not found: ${this.host}. Is the hostname correct?`);
+      } else if (error.code === 'ECONNREFUSED') {
+        logger.error(`[${reqId}] Connection refused to ${this.getBaseUrl()}. Is HCL DX running?`);
+      } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        logger.error(`[${reqId}] Connection timed out to ${this.getBaseUrl()}. Check network/firewall.`);
+      }
       return null;
     }
   }
@@ -211,9 +224,10 @@ class DxService {
     return axios.create({
       baseURL: this.getDamApiUrl(),
       headers,
-      timeout: 60000,
+      timeout: 30000,
       httpsAgent: httpsAgent,
-      validateStatus: (status) => status < 500
+      // Accept all status codes - we handle errors in each method
+      validateStatus: () => true
     });
   }
 
@@ -765,10 +779,10 @@ class DxService {
     return axios.create({
       baseURL: wcmUrl,
       headers,
-      timeout: 60000,
+      timeout: 30000,
       httpsAgent: httpsAgent,
-      // Don't throw on 4xx errors so we can handle them
-      validateStatus: (status) => status < 500
+      // Accept all status codes - we handle errors in each method
+      validateStatus: () => true
     });
   }
 
@@ -826,12 +840,15 @@ class DxService {
       logger.info(`[${reqId}] Successfully fetched ${entryCount} WCM libraries`);
       return data;
     } catch (error) {
-      logger.error(`[${reqId}] Error fetching WCM libraries:`, error.message);
+      logger.error(`[${reqId}] Error fetching WCM libraries: ${error.message} (code: ${error.code || 'N/A'})`);
       if (error.code === 'ECONNREFUSED') {
-        throw new Error(`Cannot connect to HCL DX at ${this.getBaseUrl()}. Check HCL_DX_HOST and network connectivity.`);
+        throw new Error(`Cannot connect to HCL DX at ${this.getBaseUrl()}. Check HCL_DX_HOST and ensure the server is running.`);
       }
       if (error.code === 'ENOTFOUND') {
-        throw new Error(`HCL DX host not found: ${this.host}. Check HCL_DX_HOST setting.`);
+        throw new Error(`HCL DX host not found: ${this.host}. Check HCL_DX_HOST setting. Current value may be a placeholder.`);
+      }
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        throw new Error(`Connection to HCL DX timed out at ${this.getBaseUrl()}. Check network connectivity and firewall rules.`);
       }
       throw error;
     }

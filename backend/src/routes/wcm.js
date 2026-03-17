@@ -20,12 +20,30 @@ const logger = require('../config/logger');
  */
 router.get('/libraries', authenticateToken, async (req, res) => {
   try {
+    if (!dxService.isConfigured()) {
+      return res.status(400).json({
+        error: 'HCL DX not configured',
+        details: 'Set HCL_DX_HOST, HCL_DX_USERNAME, HCL_DX_PASSWORD in environment'
+      });
+    }
+
     const authToken = req.user?.ltpaToken || null;
     const libraries = await dxService.getLibraries(authToken);
     res.json(libraries);
   } catch (error) {
-    logger.error('Error fetching WCM libraries:', error);
-    res.status(500).json({ error: 'Failed to fetch WCM libraries' });
+    logger.error('Error fetching WCM libraries:', error.message);
+    
+    const statusCode = error.message.includes('401') ? 401 :
+                       error.message.includes('403') ? 403 :
+                       error.message.includes('404') ? 404 : 500;
+    
+    res.status(statusCode).json({
+      error: 'Failed to fetch WCM libraries',
+      details: error.message,
+      hint: statusCode === 401 ? 'Check HCL_DX_USERNAME and HCL_DX_PASSWORD' :
+            statusCode === 404 ? 'Check HCL_DX_WCM_BASE_URL setting' :
+            'Check backend logs for details'
+    });
   }
 });
 
