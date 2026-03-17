@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import BPCLIcon from '../assets/bpcl-icon.svg';
 import {
   LayoutDashboard,
   Image,
@@ -153,7 +154,7 @@ export default function Layout() {
         {/* BPCL Logo */}
         <div className="flex items-center gap-3 h-16 px-4 border-b border-neutral-200 bg-secondary-500">
           <img 
-            src="/src/assets/bpcl-icon.svg" 
+            src={BPCLIcon} 
             alt="BPCL" 
             className="w-10 h-10"
           />
