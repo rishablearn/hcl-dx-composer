@@ -8,6 +8,27 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../config/logger');
+const db = require('../config/database');
+
+// Credit/cost estimates per provider (approximate)
+const PROVIDER_COSTS = {
+  openai: {
+    'dall-e-3': {
+      '1024x1024': { standard: 0.040, hd: 0.080 },
+      '1792x1024': { standard: 0.080, hd: 0.120 },
+      '1024x1792': { standard: 0.080, hd: 0.120 }
+    }
+  },
+  stability: {
+    'stable-diffusion-xl-1024-v1-0': {
+      base: 0.002, // per step
+      default_steps: 30
+    }
+  },
+  pollinations: {
+    default: 0 // Free
+  }
+};
 
 class AIService {
   constructor() {
@@ -375,6 +396,302 @@ class AIService {
     }
 
     return variations;
+  }
+
+  // ===========================================================================
+  // Usage Tracking Methods
+  // ===========================================================================
+
+  /**
+   * Calculate estimated cost for a generation request
+   */
+  calculateEstimatedCost(provider, options = {}) {
+    const { size = '1024x1024', quality = 'standard', steps = 30, model } = options;
+
+    try {
+      if (provider === 'openai') {
+        const modelCosts = PROVIDER_COSTS.openai['dall-e-3'];
+        const sizeCost = modelCosts[size] || modelCosts['1024x1024'];
+        return sizeCost[quality] || sizeCost.standard;
+      }
+
+      if (provider === 'stability') {
+        const stabilityCosts = PROVIDER_COSTS.stability['stable-diffusion-xl-1024-v1-0'];
+        return stabilityCosts.base * steps;
+      }
+
+      // Pollinations is free
+      return 0;
+    } catch (error) {
+      logger.warn(`Could not calculate cost for ${provider}:`, error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Track AI usage in database
+   */
+  async trackUsage(userId, provider, options = {}) {
+    const {
+      model,
+      operation = 'image_generation',
+      prompt = '',
+      size,
+      quality,
+      steps,
+      imagesGenerated = 1,
+      success = true,
+      errorMessage = null,
+      responseMetadata = {}
+    } = options;
+
+    const estimatedCost = this.calculateEstimatedCost(provider, { size, quality, steps, model });
+    
+    // Calculate credits (1 credit = $0.01)
+    const creditsUsed = estimatedCost * 100;
+
+    try {
+      const result = await db.query(`
+        INSERT INTO ai_usage (
+          user_id, provider, model, operation,
+          credits_used, prompt_length, images_generated, image_size,
+          estimated_cost, request_metadata, response_metadata,
+          success, error_message
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING id, credits_used, estimated_cost
+      `, [
+        userId,
+        provider,
+        model || 'default',
+        operation,
+        creditsUsed,
+        prompt.length,
+        imagesGenerated,
+        size,
+        estimatedCost,
+        JSON.stringify({ size, quality, steps }),
+        JSON.stringify(responseMetadata),
+        success,
+        errorMessage
+      ]);
+
+      // Update provider budget
+      await this.updateProviderBudget(provider, creditsUsed, 1);
+
+      logger.info(`AI usage tracked: ${provider} - ${creditsUsed.toFixed(2)} credits, $${estimatedCost.toFixed(4)}`);
+      
+      return {
+        usageId: result.rows[0]?.id,
+        creditsUsed,
+        estimatedCost
+      };
+    } catch (error) {
+      logger.error('Failed to track AI usage:', error.message);
+      // Don't throw - tracking failure shouldn't break generation
+      return { creditsUsed, estimatedCost };
+    }
+  }
+
+  /**
+   * Update provider budget counters
+   */
+  async updateProviderBudget(provider, creditsUsed, requestCount = 1) {
+    try {
+      await db.query(`
+        INSERT INTO ai_provider_budgets (provider, current_credits_used, current_requests)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (provider) DO UPDATE SET
+          current_credits_used = ai_provider_budgets.current_credits_used + $2,
+          current_requests = ai_provider_budgets.current_requests + $3,
+          updated_at = NOW()
+      `, [provider, creditsUsed, requestCount]);
+    } catch (error) {
+      logger.warn(`Failed to update provider budget for ${provider}:`, error.message);
+    }
+  }
+
+  /**
+   * Get usage statistics for a user
+   */
+  async getUserUsageStats(userId, period = 'month') {
+    try {
+      let dateFilter = '';
+      if (period === 'month') {
+        dateFilter = "AND created_at >= DATE_TRUNC('month', CURRENT_DATE)";
+      } else if (period === 'week') {
+        dateFilter = "AND created_at >= CURRENT_DATE - INTERVAL '7 days'";
+      } else if (period === 'day') {
+        dateFilter = "AND created_at >= CURRENT_DATE";
+      }
+
+      const result = await db.query(`
+        SELECT 
+          provider,
+          COUNT(*) as total_requests,
+          SUM(credits_used) as total_credits,
+          SUM(estimated_cost) as total_cost,
+          SUM(images_generated) as total_images,
+          COUNT(*) FILTER (WHERE success = true) as successful_requests,
+          COUNT(*) FILTER (WHERE success = false) as failed_requests
+        FROM ai_usage
+        WHERE user_id = $1 ${dateFilter}
+        GROUP BY provider
+        ORDER BY total_credits DESC
+      `, [userId]);
+
+      // Get totals
+      const totals = await db.query(`
+        SELECT 
+          COUNT(*) as total_requests,
+          COALESCE(SUM(credits_used), 0) as total_credits,
+          COALESCE(SUM(estimated_cost), 0) as total_cost,
+          COALESCE(SUM(images_generated), 0) as total_images
+        FROM ai_usage
+        WHERE user_id = $1 ${dateFilter}
+      `, [userId]);
+
+      return {
+        byProvider: result.rows,
+        totals: totals.rows[0],
+        period
+      };
+    } catch (error) {
+      logger.error('Failed to get user usage stats:', error.message);
+      return { byProvider: [], totals: { total_requests: 0, total_credits: 0, total_cost: 0, total_images: 0 }, period };
+    }
+  }
+
+  /**
+   * Get overall usage statistics (admin)
+   */
+  async getOverallUsageStats(period = 'month') {
+    try {
+      let dateFilter = '';
+      if (period === 'month') {
+        dateFilter = "WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)";
+      } else if (period === 'week') {
+        dateFilter = "WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'";
+      }
+
+      const byProvider = await db.query(`
+        SELECT 
+          provider,
+          COUNT(*) as total_requests,
+          SUM(credits_used) as total_credits,
+          SUM(estimated_cost) as total_cost,
+          SUM(images_generated) as total_images,
+          COUNT(DISTINCT user_id) as unique_users
+        FROM ai_usage
+        ${dateFilter}
+        GROUP BY provider
+        ORDER BY total_credits DESC
+      `);
+
+      const budgets = await db.query(`
+        SELECT 
+          provider,
+          monthly_credit_limit,
+          monthly_request_limit,
+          current_credits_used,
+          current_requests,
+          alert_threshold,
+          is_active,
+          ROUND((current_credits_used / NULLIF(monthly_credit_limit, 0) * 100)::numeric, 1) as credit_usage_percent,
+          ROUND((current_requests::numeric / NULLIF(monthly_request_limit, 0) * 100)::numeric, 1) as request_usage_percent
+        FROM ai_provider_budgets
+        ORDER BY provider
+      `);
+
+      const totals = await db.query(`
+        SELECT 
+          COUNT(*) as total_requests,
+          COALESCE(SUM(credits_used), 0) as total_credits,
+          COALESCE(SUM(estimated_cost), 0) as total_cost,
+          COALESCE(SUM(images_generated), 0) as total_images,
+          COUNT(DISTINCT user_id) as unique_users
+        FROM ai_usage
+        ${dateFilter}
+      `);
+
+      return {
+        byProvider: byProvider.rows,
+        budgets: budgets.rows,
+        totals: totals.rows[0],
+        period
+      };
+    } catch (error) {
+      logger.error('Failed to get overall usage stats:', error.message);
+      return { byProvider: [], budgets: [], totals: {}, period };
+    }
+  }
+
+  /**
+   * Check if provider has budget remaining
+   */
+  async checkProviderBudget(provider) {
+    try {
+      const result = await db.query(`
+        SELECT 
+          monthly_credit_limit,
+          monthly_request_limit,
+          current_credits_used,
+          current_requests,
+          is_active
+        FROM ai_provider_budgets
+        WHERE provider = $1
+      `, [provider]);
+
+      if (result.rows.length === 0) {
+        return { hasbudget: true, message: 'No budget configured' };
+      }
+
+      const budget = result.rows[0];
+      
+      if (!budget.is_active) {
+        return { hasBudget: false, message: 'Provider is disabled' };
+      }
+
+      const creditRemaining = budget.monthly_credit_limit - budget.current_credits_used;
+      const requestsRemaining = budget.monthly_request_limit - budget.current_requests;
+
+      if (creditRemaining <= 0) {
+        return { hasBudget: false, message: 'Monthly credit limit reached' };
+      }
+
+      if (requestsRemaining <= 0) {
+        return { hasBudget: false, message: 'Monthly request limit reached' };
+      }
+
+      return {
+        hasBudget: true,
+        creditRemaining,
+        requestsRemaining,
+        creditUsagePercent: ((budget.current_credits_used / budget.monthly_credit_limit) * 100).toFixed(1)
+      };
+    } catch (error) {
+      logger.warn(`Failed to check budget for ${provider}:`, error.message);
+      return { hasBudget: true, message: 'Budget check failed' };
+    }
+  }
+
+  /**
+   * Reset monthly budgets (called by cron or manually)
+   */
+  async resetMonthlyBudgets() {
+    try {
+      await db.query(`
+        UPDATE ai_provider_budgets
+        SET 
+          current_credits_used = 0,
+          current_requests = 0,
+          current_period_start = DATE_TRUNC('month', CURRENT_DATE),
+          updated_at = NOW()
+        WHERE current_period_start < DATE_TRUNC('month', CURRENT_DATE)
+      `);
+      logger.info('Monthly AI budgets reset');
+    } catch (error) {
+      logger.error('Failed to reset monthly budgets:', error.message);
+    }
   }
 }
 

@@ -103,11 +103,17 @@ export default function AICreativeStudio() {
   const [addToDAM, setAddToDAM] = useState(true);
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState('');
+  
+  // Usage tracking state
+  const [usageStats, setUsageStats] = useState(null);
+  const [showUsage, setShowUsage] = useState(false);
+  const [lastGenUsage, setLastGenUsage] = useState(null);
 
   useEffect(() => {
     loadProviders();
     loadHistory();
     loadCollections();
+    loadUsageStats();
   }, []);
 
   const loadProviders = async () => {
@@ -144,6 +150,15 @@ export default function AICreativeStudio() {
       setCollections(response.data || []);
     } catch (err) {
       console.error('Failed to load collections:', err);
+    }
+  };
+
+  const loadUsageStats = async () => {
+    try {
+      const response = await api.get('/ai/usage?period=month');
+      setUsageStats(response.data);
+    } catch (err) {
+      console.error('Failed to load usage stats:', err);
     }
   };
 
@@ -221,6 +236,12 @@ export default function AICreativeStudio() {
           url: `/uploads${img.path}`,
           staged: false
         })));
+      }
+
+      // Capture usage data from response
+      if (response.data.usage) {
+        setLastGenUsage(response.data.usage);
+        loadUsageStats(); // Refresh overall stats
       }
 
       loadHistory();
@@ -785,6 +806,80 @@ export default function AICreativeStudio() {
               )}
             </div>
           )}
+
+          {/* Usage & Credits */}
+          <div className="card p-4 border-2 border-emerald-200 bg-emerald-50/50">
+            <h3 className="font-semibold text-navy-800 mb-3 flex items-center gap-2">
+              💳 Usage & Credits
+            </h3>
+            
+            {/* Last Generation Cost */}
+            {lastGenUsage && (
+              <div className="mb-3 p-2 bg-white rounded-lg border border-emerald-200">
+                <p className="text-xs text-neutral-500 mb-1">Last Generation</p>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-navy-800">
+                    {lastGenUsage.creditsUsed?.toFixed(2) || '0.00'} credits
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    ${lastGenUsage.estimatedCost?.toFixed(4) || '0.0000'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Monthly Stats */}
+            {usageStats?.totals && (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-neutral-600">This Month</span>
+                  <span className="font-medium text-navy-800">
+                    {parseFloat(usageStats.totals.total_credits || 0).toFixed(2)} credits
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-neutral-600">Total Cost</span>
+                  <span className="font-medium text-emerald-700">
+                    ${parseFloat(usageStats.totals.total_cost || 0).toFixed(4)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-neutral-600">Images Generated</span>
+                  <span className="font-medium text-navy-800">
+                    {usageStats.totals.total_images || 0}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-neutral-600">Requests</span>
+                  <span className="font-medium text-navy-800">
+                    {usageStats.totals.total_requests || 0}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Per Provider Breakdown */}
+            {usageStats?.byProvider?.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-emerald-200">
+                <p className="text-xs text-neutral-500 mb-2">By Provider</p>
+                <div className="space-y-1">
+                  {usageStats.byProvider.map((p) => (
+                    <div key={p.provider} className="flex justify-between items-center text-xs">
+                      <span className="text-neutral-600 capitalize">{p.provider}</span>
+                      <span className="font-medium">
+                        {parseFloat(p.total_credits || 0).toFixed(2)} credits
+                        <span className="text-neutral-400 ml-1">({p.total_images} imgs)</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!usageStats?.totals && (
+              <p className="text-sm text-neutral-500">No usage data yet</p>
+            )}
+          </div>
 
           {/* Quick Tips */}
           <div className="card p-4 bg-gradient-to-br from-secondary-50 to-primary-50">

@@ -235,6 +235,17 @@ router.post('/generate-and-stage', authenticateToken, requireAuthor, async (req,
       JSON.stringify(stagedAssets.map(a => a.id))
     ]);
 
+    // Track AI usage for credits/costs
+    const usageData = await aiService.trackUsage(req.user.id, options.provider, {
+      model: options.model,
+      prompt,
+      size: options.size,
+      quality: options.quality,
+      steps: options.steps,
+      imagesGenerated: images.length,
+      success: true
+    });
+
     logger.info(`AI image generated, uploaded to DX DAM, and staged by ${req.user.username}: ${prompt.substring(0, 50)}...`);
 
     res.json({
@@ -244,6 +255,7 @@ router.post('/generate-and-stage', authenticateToken, requireAuthor, async (req,
       dxAssets: dxAssets,
       prompt,
       provider: options.provider,
+      usage: usageData,
       workflow: {
         currentStatus: 'pending_approval',
         currentCollection: 'Not Approved Assets',
@@ -251,6 +263,14 @@ router.post('/generate-and-stage', authenticateToken, requireAuthor, async (req,
       }
     });
   } catch (error) {
+    // Track failed usage too
+    if (req.user?.id) {
+      await aiService.trackUsage(req.user.id, req.body.provider || 'unknown', {
+        prompt: req.body.prompt,
+        success: false,
+        errorMessage: error.message
+      }).catch(() => {});
+    }
     logger.error('Error generating and staging AI image:', error);
     res.status(500).json({ error: error.message || 'Failed to generate and stage image' });
   }
@@ -326,6 +346,124 @@ router.post('/enhance-prompt', authenticateToken, async (req, res) => {
   } catch (error) {
     logger.error('Error enhancing prompt:', error);
     res.status(500).json({ error: 'Failed to enhance prompt' });
+  }
+});
+
+/**
+ * GET /api/ai/usage
+ * Get AI usage statistics for current user
+ */
+router.get('/usage', authenticateToken, async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    const stats = await aiService.getUserUsageStats(req.user.id, period);
+    res.json(stats);
+  } catch (error) {
+    logger.error('Error fetching AI usage stats:', error);
+    res.status(500).json({ error: 'Failed to fetch usage statistics' });
+  }
+});
+
+/**
+ * GET /api/ai/usage/overall
+ * Get overall AI usage statistics (admin only)
+ */
+router.get('/usage/overall', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin or approver
+    if (!['admin', 'approver'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { period = 'month' } = req.query;
+    const stats = await aiService.getOverallUsageStats(period);
+    res.json(stats);
+  } catch (error) {
+    logger.error('Error fetching overall AI usage stats:', error);
+    res.status(500).json({ error: 'Failed to fetch overall usage statistics' });
+  }
+});
+
+/**
+ * GET /api/ai/budget/:provider
+ * Check budget status for a provider
+ */
+router.get('/budget/:provider', authenticateToken, async (req, res) => {
+  try {
+    const budgetStatus = await aiService.checkProviderBudget(req.params.provider);
+    res.json(budgetStatus);
+  } catch (error) {
+    logger.error('Error checking provider budget:', error);
+    res.status(500).json({ error: 'Failed to check provider budget' });
+  }
+});
+
+/**
+ * GET /api/ai/budgets
+ * Get all provider budgets (admin only)
+ */
+router.get('/budgets', authenticateToken, async (req, res) => {
+  try {
+    if (!['admin', 'approver'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const result = await db.query(`
+      SELECT 
+        provider,
+        monthly_credit_limit,
+        monthly_request_limit,
+        current_credits_used,
+        current_requests,
+        alert_threshold,
+        is_active,
+        current_period_start,
+        ROUND((current_credits_used / NULLIF(monthly_credit_limit, 0) * 100)::numeric, 1) as credit_usage_percent,
+        ROUND((current_requests::numeric / NULLIF(monthly_request_limit, 0) * 100)::numeric, 1) as request_usage_percent
+      FROM ai_provider_budgets
+      ORDER BY provider
+    `);
+
+    res.json({ budgets: result.rows });
+  } catch (error) {
+    logger.error('Error fetching provider budgets:', error);
+    res.status(500).json({ error: 'Failed to fetch provider budgets' });
+  }
+});
+
+/**
+ * PUT /api/ai/budgets/:provider
+ * Update provider budget settings (admin only)
+ */
+router.put('/budgets/:provider', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { provider } = req.params;
+    const { monthly_credit_limit, monthly_request_limit, alert_threshold, is_active } = req.body;
+
+    const result = await db.query(`
+      UPDATE ai_provider_budgets
+      SET 
+        monthly_credit_limit = COALESCE($2, monthly_credit_limit),
+        monthly_request_limit = COALESCE($3, monthly_request_limit),
+        alert_threshold = COALESCE($4, alert_threshold),
+        is_active = COALESCE($5, is_active),
+        updated_at = NOW()
+      WHERE provider = $1
+      RETURNING *
+    `, [provider, monthly_credit_limit, monthly_request_limit, alert_threshold, is_active]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Provider budget not found' });
+    }
+
+    res.json({ budget: result.rows[0] });
+  } catch (error) {
+    logger.error('Error updating provider budget:', error);
+    res.status(500).json({ error: 'Failed to update provider budget' });
   }
 });
 
