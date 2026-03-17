@@ -219,17 +219,20 @@ class DxServiceV2 {
    * All responses normalized to: { items: [{id, title: {lang, value}, name, type, ...}], total }
    */
   async getLibraries(authToken = null, options = {}) {
+    // Default to high limit to get ALL libraries (DX default is often ~20)
+    const limit = options.limit || 500;
+    const offset = options.offset || 0;
+
     // Strategy 1: WCM API v2 direct endpoint
     try {
-      logger.info(`[WCM] Trying WCM API v2: GET ${this.wcmApiBase}/libraries`);
+      const url = `${this.wcmApiBase}/libraries`;
+      logger.info(`[WCM] Trying WCM API v2: GET ${url} (limit=${limit}, offset=${offset})`);
       const client = this.createClient(authToken);
       const params = new URLSearchParams();
-      if (options.limit) params.append('limit', options.limit);
-      if (options.page) params.append('page', options.page);
+      params.append('limit', limit);
+      params.append('offset', offset);
 
-      const response = await client.get(
-        `${this.wcmApiBase}/libraries?${params}`
-      );
+      const response = await client.get(`${url}?${params}`);
 
       if (response.status === 200) {
         const items = response.data?.items || response.data?.contents || [];
@@ -247,12 +250,12 @@ class DxServiceV2 {
     try {
       const accessType = authToken ? 'dxmyrest' : 'dxrest';
       const ringPath = `${this.ringApiBase}/${accessType}/webcontent/libraries`;
-      logger.info(`[WCM] Trying Ring API: GET ${ringPath}`);
+      logger.info(`[WCM] Trying Ring API: GET ${ringPath} (limit=${limit})`);
       const client = this.createClient(authToken);
 
       const params = new URLSearchParams();
-      if (options.limit) params.append('limit', options.limit);
-      if (options.page) params.append('page', options.page);
+      params.append('limit', limit);
+      params.append('offset', offset);
 
       const response = await client.get(`${ringPath}?${params}`);
 
@@ -273,35 +276,62 @@ class DxServiceV2 {
   }
 
   /**
-   * Get authoring templates via Ring API
-   * GET /dx/api/core/v1/{access_type}/webcontent/authoring-templates
+   * Get authoring templates (content templates) for a library.
+   * Multi-strategy:
+   * 1. WCM API v2: GET /dx/api/wcm/v2/content-templates?libraryID={id}
+   * 2. Ring API: GET /dx/api/core/v1/{access_type}/webcontent/authoring-templates?libraryID={id}
+   * 3. Legacy: GET /wps/mycontenthandler/wcmrest/Library/{id}/AuthoringTemplate
    */
   async getAuthoringTemplates(libraryId, authToken = null, options = {}) {
+    const limit = options.limit || 200;
+
+    // Strategy 1: WCM API v2 - /content-templates?libraryID=
     try {
-      const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      const url = `${this.wcmApiBase}/content-templates`;
+      logger.info(`[WCM] Trying WCM API v2: GET ${url}?libraryID=${libraryId}`);
       const client = this.createClient(authToken);
-      
       const params = new URLSearchParams();
       params.append('libraryID', libraryId);
-      if (options.limit) params.append('limit', options.limit);
-      if (options.page) params.append('page', options.page);
-      
-      const response = await client.get(
-        `${this.ringApiBase}/${accessType}/webcontent/authoring-templates?${params}`
-      );
+      params.append('limit', limit);
 
-      if (response.status !== 200) {
-        throw new Error(`Failed to get authoring templates: ${response.status}`);
+      const response = await client.get(`${url}?${params}`);
+      if (response.status === 200) {
+        const items = response.data?.items || response.data?.contents || [];
+        logger.info(`[WCM] WCM API v2 content-templates returned ${items.length} templates for library ${libraryId}`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'wcm-api-v2' };
+        }
       }
-
-      return {
-        items: response.data.contents || [],
-        total: response.data.total || 0
-      };
+      logger.warn(`[WCM] WCM API v2 content-templates returned status ${response.status}, trying Ring API...`);
     } catch (error) {
-      logger.error('Error fetching authoring templates via Ring API:', error.message);
-      return this.getAuthoringTemplatesLegacy(libraryId, authToken);
+      logger.warn(`[WCM] WCM API v2 content-templates failed: ${error.message}, trying Ring API...`);
     }
+
+    // Strategy 2: Ring API
+    try {
+      const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      const ringPath = `${this.ringApiBase}/${accessType}/webcontent/authoring-templates`;
+      logger.info(`[WCM] Trying Ring API: GET ${ringPath}?libraryID=${libraryId}`);
+      const client = this.createClient(authToken);
+      const params = new URLSearchParams();
+      params.append('libraryID', libraryId);
+      params.append('limit', limit);
+
+      const response = await client.get(`${ringPath}?${params}`);
+      if (response.status === 200) {
+        const items = response.data?.contents || response.data?.items || [];
+        logger.info(`[WCM] Ring API authoring-templates returned ${items.length} templates for library ${libraryId}`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'ring-api' };
+        }
+      }
+      logger.warn(`[WCM] Ring API authoring-templates returned status ${response.status}, trying legacy...`);
+    } catch (error) {
+      logger.warn(`[WCM] Ring API authoring-templates failed: ${error.message}, trying legacy...`);
+    }
+
+    // Strategy 3: Legacy
+    return this.getAuthoringTemplatesLegacy(libraryId, authToken);
   }
 
   /**
@@ -329,33 +359,94 @@ class DxServiceV2 {
   }
 
   /**
-   * Get workflows via Ring API
-   * GET /dx/api/core/v1/{access_type}/webcontent/workflows
+   * Get presentation templates for a library.
+   * Multi-strategy:
+   * 1. WCM API v2: GET /dx/api/wcm/v2/presentation-templates?libraryID={id}
+   * 2. Ring API: GET /dx/api/core/v1/{access_type}/webcontent/presentation-templates?libraryID={id}
+   * 3. Legacy: GET /wps/mycontenthandler/wcmrest/Library/{id}/PresentationTemplate
    */
-  async getWorkflows(libraryId = null, authToken = null) {
+  async getPresentationTemplates(libraryId, authToken = null, options = {}) {
+    const limit = options.limit || 200;
+
+    // Strategy 1: WCM API v2
+    try {
+      const url = `${this.wcmApiBase}/presentation-templates`;
+      logger.info(`[WCM] Trying WCM API v2: GET ${url}?libraryID=${libraryId}`);
+      const client = this.createClient(authToken);
+      const params = new URLSearchParams();
+      params.append('libraryID', libraryId);
+      params.append('limit', limit);
+
+      const response = await client.get(`${url}?${params}`);
+      if (response.status === 200) {
+        const items = response.data?.items || response.data?.contents || [];
+        logger.info(`[WCM] WCM API v2 presentation-templates returned ${items.length} for library ${libraryId}`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'wcm-api-v2' };
+        }
+      }
+      logger.warn(`[WCM] WCM API v2 presentation-templates status ${response.status}, trying Ring API...`);
+    } catch (error) {
+      logger.warn(`[WCM] WCM API v2 presentation-templates failed: ${error.message}, trying Ring API...`);
+    }
+
+    // Strategy 2: Ring API
     try {
       const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      const ringPath = `${this.ringApiBase}/${accessType}/webcontent/presentation-templates`;
+      logger.info(`[WCM] Trying Ring API: GET ${ringPath}?libraryID=${libraryId}`);
       const client = this.createClient(authToken);
-      
+      const params = new URLSearchParams();
+      params.append('libraryID', libraryId);
+      params.append('limit', limit);
+
+      const response = await client.get(`${ringPath}?${params}`);
+      if (response.status === 200) {
+        const items = response.data?.contents || response.data?.items || [];
+        logger.info(`[WCM] Ring API presentation-templates returned ${items.length} for library ${libraryId}`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'ring-api' };
+        }
+      }
+      logger.warn(`[WCM] Ring API presentation-templates status ${response.status}, trying legacy...`);
+    } catch (error) {
+      logger.warn(`[WCM] Ring API presentation-templates failed: ${error.message}, trying legacy...`);
+    }
+
+    // Strategy 3: Legacy
+    return this.getPresentationTemplatesLegacy(libraryId, authToken);
+  }
+
+  /**
+   * Get workflows for a library.
+   * Uses Ring API then legacy (no WCM v2 endpoint for workflows).
+   */
+  async getWorkflows(libraryId = null, authToken = null) {
+    // Strategy 1: Ring API
+    try {
+      const accessType = authToken ? 'dxmyrest' : 'dxrest';
+      const ringPath = `${this.ringApiBase}/${accessType}/webcontent/workflows`;
+      logger.info(`[WCM] Trying Ring API: GET ${ringPath}?libraryID=${libraryId}`);
+      const client = this.createClient(authToken);
       const params = new URLSearchParams();
       if (libraryId) params.append('libraryID', libraryId);
-      
-      const response = await client.get(
-        `${this.ringApiBase}/${accessType}/webcontent/workflows?${params}`
-      );
+      params.append('limit', 200);
 
-      if (response.status !== 200) {
-        throw new Error(`Failed to get workflows: ${response.status}`);
+      const response = await client.get(`${ringPath}?${params}`);
+      if (response.status === 200) {
+        const items = response.data?.contents || response.data?.items || [];
+        logger.info(`[WCM] Ring API workflows returned ${items.length} for library ${libraryId}`);
+        if (items.length > 0) {
+          return { items, total: response.data?.total || items.length, source: 'ring-api' };
+        }
       }
-
-      return {
-        items: response.data.contents || [],
-        total: response.data.total || 0
-      };
+      logger.warn(`[WCM] Ring API workflows status ${response.status}, trying legacy...`);
     } catch (error) {
-      logger.error('Error fetching workflows via Ring API:', error.message);
-      return this.getWorkflowsLegacy(libraryId, authToken);
+      logger.warn(`[WCM] Ring API workflows failed: ${error.message}, trying legacy...`);
     }
+
+    // Strategy 2: Legacy
+    return this.getWorkflowsLegacy(libraryId, authToken);
   }
 
   /**
@@ -905,16 +996,70 @@ class DxServiceV2 {
 
   async getAuthoringTemplatesLegacy(libraryId, authToken) {
     try {
+      const legacyUrl = `${this.wcmRestBase}/Library/${libraryId}/AuthoringTemplate`;
+      logger.info(`[WCM] Trying Legacy API: GET ${legacyUrl}`);
       const client = this.createClient(authToken);
-      const response = await client.get(`${this.wcmRestBase}/Library/${libraryId}/AuthoringTemplate`);
+      const response = await client.get(legacyUrl);
       
       if (response.status !== 200) {
         throw new Error(`Failed to get authoring templates: ${response.status}`);
       }
       
-      return { items: response.data?.feed?.entry || [], total: 0 };
+      const rawEntries = response.data?.feed?.entry || [];
+      logger.info(`[WCM] Legacy API returned ${rawEntries.length} authoring templates for library ${libraryId}`);
+
+      const items = rawEntries.map(entry => {
+        const rawId = entry.id || '';
+        const cleanId = typeof rawId === 'string' ? rawId.replace(/^wcmrest:/, '') : rawId;
+        const titleValue = typeof entry.title === 'string' ? entry.title : (entry.title?.value || entry.name || '');
+        return {
+          id: cleanId,
+          title: { lang: 'en', value: titleValue },
+          displayTitle: titleValue,
+          name: entry.name || titleValue,
+          type: 'ContentTemplate',
+          _source: 'legacy-wcmrest'
+        };
+      });
+
+      return { items, total: items.length, source: 'legacy-wcmrest' };
     } catch (error) {
       logger.error('Error fetching authoring templates (legacy):', error.message);
+      throw error;
+    }
+  }
+
+  async getPresentationTemplatesLegacy(libraryId, authToken) {
+    try {
+      const legacyUrl = `${this.wcmRestBase}/Library/${libraryId}/PresentationTemplate`;
+      logger.info(`[WCM] Trying Legacy API: GET ${legacyUrl}`);
+      const client = this.createClient(authToken);
+      const response = await client.get(legacyUrl);
+      
+      if (response.status !== 200) {
+        throw new Error(`Failed to get presentation templates: ${response.status}`);
+      }
+      
+      const rawEntries = response.data?.feed?.entry || [];
+      logger.info(`[WCM] Legacy API returned ${rawEntries.length} presentation templates for library ${libraryId}`);
+
+      const items = rawEntries.map(entry => {
+        const rawId = entry.id || '';
+        const cleanId = typeof rawId === 'string' ? rawId.replace(/^wcmrest:/, '') : rawId;
+        const titleValue = typeof entry.title === 'string' ? entry.title : (entry.title?.value || entry.name || '');
+        return {
+          id: cleanId,
+          title: { lang: 'en', value: titleValue },
+          displayTitle: titleValue,
+          name: entry.name || titleValue,
+          type: 'PresentationTemplate',
+          _source: 'legacy-wcmrest'
+        };
+      });
+
+      return { items, total: items.length, source: 'legacy-wcmrest' };
+    } catch (error) {
+      logger.error('Error fetching presentation templates (legacy):', error.message);
       throw error;
     }
   }
@@ -937,17 +1082,35 @@ class DxServiceV2 {
 
   async getWorkflowsLegacy(libraryId, authToken) {
     try {
-      const client = this.createClient(authToken);
-      const url = libraryId 
+      const legacyUrl = libraryId 
         ? `${this.wcmRestBase}/Library/${libraryId}/Workflow`
         : `${this.wcmRestBase}/Workflow`;
-      const response = await client.get(url);
+      logger.info(`[WCM] Trying Legacy API: GET ${legacyUrl}`);
+      const client = this.createClient(authToken);
+      const response = await client.get(legacyUrl);
       
       if (response.status !== 200) {
         throw new Error(`Failed to get workflows: ${response.status}`);
       }
       
-      return { items: response.data?.feed?.entry || [], total: 0 };
+      const rawEntries = response.data?.feed?.entry || [];
+      logger.info(`[WCM] Legacy API returned ${rawEntries.length} workflows for library ${libraryId}`);
+
+      const items = rawEntries.map(entry => {
+        const rawId = entry.id || '';
+        const cleanId = typeof rawId === 'string' ? rawId.replace(/^wcmrest:/, '') : rawId;
+        const titleValue = typeof entry.title === 'string' ? entry.title : (entry.title?.value || entry.name || '');
+        return {
+          id: cleanId,
+          title: { lang: 'en', value: titleValue },
+          displayTitle: titleValue,
+          name: entry.name || titleValue,
+          type: 'Workflow',
+          _source: 'legacy-wcmrest'
+        };
+      });
+
+      return { items, total: items.length, source: 'legacy-wcmrest' };
     } catch (error) {
       logger.error('Error fetching workflows (legacy):', error.message);
       throw error;

@@ -188,6 +188,7 @@ router.get('/libraries/:id/authoring-templates', authenticateToken, async (req, 
     }
     const authToken = req.user?.ltpaToken || null;
     const templates = await dxServiceV2.getAuthoringTemplates(req.params.id, authToken);
+    logger.info(`[WCM Route] Returning ${templates.items?.length || 0} authoring templates for library ${req.params.id} (source: ${templates.source || 'unknown'})`);
     res.json(templates);
   } catch (error) {
     logger.error('Error fetching authoring templates:', error.message);
@@ -232,14 +233,9 @@ router.get('/libraries/:id/presentation-templates', authenticateToken, async (re
       return res.json(getDemoPresentationTemplates(req.params.id));
     }
     const authToken = req.user?.ltpaToken || null;
-    // Try v2 first, fall back to v1
-    try {
-      const templates = await dxServiceV2.getAuthoringTemplates(req.params.id, authToken);
-      res.json(templates);
-    } catch {
-      const templates = await dxService.getPresentationTemplates(req.params.id, authToken);
-      res.json(templates);
-    }
+    const templates = await dxServiceV2.getPresentationTemplates(req.params.id, authToken);
+    logger.info(`[WCM Route] Returning ${templates.items?.length || 0} presentation templates for library ${req.params.id} (source: ${templates.source || 'unknown'})`);
+    res.json(templates);
   } catch (error) {
     logger.error('Error fetching presentation templates:', error.message);
     res.json(getDemoPresentationTemplates(req.params.id));
@@ -257,6 +253,7 @@ router.get('/libraries/:id/workflows', authenticateToken, async (req, res) => {
     }
     const authToken = req.user?.ltpaToken || null;
     const workflows = await dxServiceV2.getWorkflows(req.params.id, authToken);
+    logger.info(`[WCM Route] Returning ${workflows.items?.length || 0} workflows for library ${req.params.id} (source: ${workflows.source || 'unknown'})`);
     res.json(workflows);
   } catch (error) {
     logger.error('Error fetching workflows:', error.message);
