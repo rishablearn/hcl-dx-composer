@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useBrand } from '../context/BrandContext';
 import BPCLIcon from '../assets/bpcl-icon.svg';
 import {
   LayoutDashboard,
@@ -24,6 +25,7 @@ import { clsx } from 'clsx';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [] },
+  { name: 'AI Creative Studio', href: '/ai-studio', icon: Sparkles, roles: ['dxcontentauthors', 'wpsadmin'] },
   {
     name: 'DAM Workflow',
     icon: Image,
@@ -44,7 +46,6 @@ const navigation = [
       { name: 'Approvals', href: '/wcm/approvals', icon: CheckSquare, roles: ['dxcontentapprovers', 'wpsadmin'] },
     ],
   },
-  { name: 'AI Creative Studio', href: '/ai-studio', icon: Sparkles, roles: ['dxcontentauthors', 'wpsadmin'] },
   { name: 'Microsite', href: '/microsite', icon: Globe, roles: [] },
   { name: 'Settings', href: '/settings', icon: Settings, roles: ['wpsadmin'] },
 ];
@@ -126,6 +127,7 @@ function NavItem({ item, hasAnyRole, mobile = false }) {
 
 export default function Layout() {
   const { user, logout, hasAnyRole } = useAuth();
+  const { brand } = useBrand();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -151,16 +153,21 @@ export default function Layout() {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        {/* BPCL Logo */}
-        <div className="flex items-center gap-3 h-16 px-4 border-b border-neutral-200 bg-secondary-500">
-          <img 
-            src={BPCLIcon} 
-            alt="BPCL" 
-            className="w-10 h-10"
-          />
-          <div>
-            <h1 className="text-lg font-bold text-white">DX Composer</h1>
-            <p className="text-xs text-primary-300">Bharat Petroleum</p>
+        {/* App Logo & Title */}
+        <div
+          className="flex items-center gap-3 h-16 px-4 border-b border-neutral-200"
+          style={{ backgroundColor: brand.sidebarColor || '#1E3A5F' }}
+        >
+          {brand.logoUrl ? (
+            <img src={brand.logoUrl} alt={brand.appName} className="w-10 h-10 object-contain rounded" />
+          ) : (
+            <img src={BPCLIcon} alt="Logo" className="w-10 h-10" />
+          )}
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-white truncate">{brand.appName || 'DX Composer'}</h1>
+            {brand.appSubtitle && (
+              <p className="text-xs text-white/70 truncate">{brand.appSubtitle}</p>
+            )}
           </div>
         </div>
 

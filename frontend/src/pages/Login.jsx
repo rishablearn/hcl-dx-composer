@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useBrand } from '../context/BrandContext';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import BPCLIcon from '../assets/bpcl-icon.svg';
@@ -12,6 +13,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { brand } = useBrand();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -37,7 +39,10 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left side - BPCL Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-secondary-600 via-secondary-500 to-secondary-700 relative overflow-hidden">
+      <div
+        className="hidden lg:flex lg:w-1/2 relative overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${brand.sidebarColor || '#1E3A5F'}, ${brand.accentColor || '#0A6ED1'})` }}
+      >
         {/* Decorative elements */}
         <div className="absolute inset-0">
           <div className="absolute top-0 left-0 w-96 h-96 bg-primary-500/20 rounded-full -translate-x-1/2 -translate-y-1/2" />
@@ -46,18 +51,18 @@ export default function Login() {
         </div>
         
         <div className="relative flex flex-col items-center justify-center w-full p-12 text-center">
-          {/* BPCL Logo */}
-          <img 
-            src={BPCLLogo} 
-            alt="Bharat Petroleum" 
-            className="h-24 mb-8 drop-shadow-lg"
-          />
+          {/* Logo */}
+          {brand.logoUrl ? (
+            <img src={brand.logoUrl} alt={brand.appName} className="h-20 mb-8 drop-shadow-lg object-contain" />
+          ) : (
+            <img src={BPCLLogo} alt="Logo" className="h-24 mb-8 drop-shadow-lg" />
+          )}
           
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 mb-8">
             <h1 className="text-3xl font-bold text-white mb-2">
-              DX Composer
+              {brand.appName || 'DX Composer'}
             </h1>
-            <p className="text-lg text-primary-200">
+            <p className="text-lg text-white/80">
               Digital Asset & Content Management
             </p>
           </div>
@@ -66,11 +71,13 @@ export default function Login() {
             Streamline your content workflows with our integrated DAM and WCM solution powered by HCL Digital Experience
           </p>
           
-          <div className="absolute bottom-8 left-0 right-0 text-center">
-            <p className="text-xs text-white/50">
-              <span className="text-primary-300 font-semibold">Energising Lives</span> • A Bharat Petroleum Initiative
-            </p>
-          </div>
+          {brand.appSubtitle && (
+            <div className="absolute bottom-8 left-0 right-0 text-center">
+              <p className="text-xs text-white/50">
+                <span className="text-white/80 font-semibold">{brand.appSubtitle}</span>
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -79,14 +86,14 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex flex-col items-center justify-center gap-3 mb-8 lg:hidden">
-            <img 
-              src={BPCLIcon} 
-              alt="BPCL" 
-              className="w-16 h-16"
-            />
+            {brand.logoUrl ? (
+              <img src={brand.logoUrl} alt={brand.appName} className="w-16 h-16 object-contain" />
+            ) : (
+              <img src={BPCLIcon} alt="Logo" className="w-16 h-16" />
+            )}
             <div className="text-center">
-              <span className="text-2xl font-bold text-secondary-600">DX Composer</span>
-              <p className="text-sm text-neutral-500">Bharat Petroleum</p>
+              <span className="text-2xl font-bold text-secondary-600">{brand.appName || 'DX Composer'}</span>
+              {brand.appSubtitle && <p className="text-sm text-neutral-500">{brand.appSubtitle}</p>}
             </div>
           </div>
 

@@ -63,6 +63,16 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         
+        {/* AI Creative Studio Route */}
+        <Route 
+          path="ai-studio" 
+          element={
+            <ProtectedRoute requiredRoles={['dxcontentauthors', 'wpsadmin']}>
+              <AICreativeStudio />
+            </ProtectedRoute>
+          } 
+        />
+
         {/* DAM Workflow Routes */}
         <Route path="dam">
           <Route index element={<DAMWorkflow />} />
@@ -112,16 +122,6 @@ function App() {
             } 
           />
         </Route>
-        
-        {/* AI Creative Studio Route */}
-        <Route 
-          path="ai-studio" 
-          element={
-            <ProtectedRoute requiredRoles={['dxcontentauthors', 'wpsadmin']}>
-              <AICreativeStudio />
-            </ProtectedRoute>
-          } 
-        />
         
         {/* Microsite Routes with locale support */}
         <Route path="microsite">

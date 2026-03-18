@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { configApi, damApi, wcmApi } from '../services/api';
+import { useBrand } from '../context/BrandContext';
 import {
   Settings as SettingsIcon,
   Users,
@@ -17,7 +18,10 @@ import {
   Image,
   FileText,
   ExternalLink,
-  AlertCircle
+  AlertCircle,
+  Palette,
+  Type,
+  Save
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -187,7 +191,13 @@ function RoleMappingSection({ role, mappings, ldapGroups, onAdd, onRemove, loadi
 export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('roles');
+  const [activeTab, setActiveTab] = useState('branding');
+
+  // Whitelabel branding
+  const { brand, updateBrand } = useBrand();
+  const [brandForm, setBrandForm] = useState({});
+  const [savingBrand, setSavingBrand] = useState(false);
+  const [brandDirty, setBrandDirty] = useState(false);
   
   // Role mappings
   const [roleMappings, setRoleMappings] = useState([]);
@@ -212,30 +222,66 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
+    setBrandForm({ ...brand });
+    setBrandDirty(false);
+  }, [brand]);
+
+  const handleBrandChange = (key, value) => {
+    setBrandForm(prev => ({ ...prev, [key]: value }));
+    setBrandDirty(true);
+  };
+
+  const handleBrandSave = async () => {
+    setSavingBrand(true);
+    try {
+      await updateBrand(brandForm);
+      setBrandDirty(false);
+      toast.success('Branding settings saved successfully');
+    } catch (err) {
+      toast.error('Failed to save branding settings');
+    } finally {
+      setSavingBrand(false);
+    }
+  };
+
+  useEffect(() => {
     if (activeTab === 'dam') {
       loadDamData();
+    } else if (activeTab === 'wcm') {
+      loadWcmLibraries();
     }
   }, [activeTab]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [mappingsRes, groupsRes] = await Promise.all([
+      const [mappingsResult, groupsResult] = await Promise.allSettled([
         configApi.getRoleMappings(),
         configApi.getLdapGroups()
       ]);
-      setRoleMappings(mappingsRes.data);
-      setLdapGroups(groupsRes.data);
+
+      if (mappingsResult.status === 'fulfilled') {
+        setRoleMappings(Array.isArray(mappingsResult.value.data) ? mappingsResult.value.data : []);
+      } else {
+        console.error('Failed to load role mappings:', mappingsResult.reason);
+        setRoleMappings([]);
+      }
+
+      if (groupsResult.status === 'fulfilled') {
+        setLdapGroups(Array.isArray(groupsResult.value.data) ? groupsResult.value.data : []);
+      } else {
+        console.error('Failed to load LDAP groups:', groupsResult.reason);
+        // Set fallback demo data
+        setLdapGroups([
+          { dn: 'CN=ContentAuthors,OU=Groups,DC=domain,DC=com', name: 'ContentAuthors', memberCount: 15 },
+          { dn: 'CN=ContentApprovers,OU=Groups,DC=domain,DC=com', name: 'ContentApprovers', memberCount: 5 },
+          { dn: 'CN=PortalAdmins,OU=Groups,DC=domain,DC=com', name: 'PortalAdmins', memberCount: 3 },
+          { dn: 'CN=Marketing,OU=Groups,DC=domain,DC=com', name: 'Marketing', memberCount: 25 },
+          { dn: 'CN=Communications,OU=Groups,DC=domain,DC=com', name: 'Communications', memberCount: 10 },
+        ]);
+      }
     } catch (error) {
       console.error('Failed to load settings:', error);
-      // Set mock data for demo
-      setLdapGroups([
-        { dn: 'CN=ContentAuthors,OU=Groups,DC=domain,DC=com', name: 'ContentAuthors', memberCount: 15 },
-        { dn: 'CN=ContentApprovers,OU=Groups,DC=domain,DC=com', name: 'ContentApprovers', memberCount: 5 },
-        { dn: 'CN=PortalAdmins,OU=Groups,DC=domain,DC=com', name: 'PortalAdmins', memberCount: 3 },
-        { dn: 'CN=Marketing,OU=Groups,DC=domain,DC=com', name: 'Marketing', memberCount: 25 },
-        { dn: 'CN=Communications,OU=Groups,DC=domain,DC=com', name: 'Communications', memberCount: 10 },
-      ]);
     } finally {
       setLoading(false);
     }
@@ -294,21 +340,31 @@ export default function Settings() {
   const loadDamData = async () => {
     setLoadingCollections(true);
     try {
-      const [statusRes, collectionsRes] = await Promise.all([
+      const [statusResult, collectionsResult] = await Promise.allSettled([
         damApi.getDxStatus(),
-        damApi.getDxCollections().catch(() => ({ data: { contents: [] } }))
+        damApi.getDxCollections()
       ]);
-      setDxStatus(statusRes.data);
-      setDamCollections(collectionsRes.data?.contents || []);
+
+      if (statusResult.status === 'fulfilled') {
+        setDxStatus(statusResult.value.data);
+      } else {
+        console.error('Failed to load DX status:', statusResult.reason);
+        setDxStatus({ configured: false, error: statusResult.reason?.message || 'Failed to load status' });
+      }
+
+      if (collectionsResult.status === 'fulfilled') {
+        setDamCollections(collectionsResult.value.data?.contents || []);
+      } else {
+        console.error('Failed to load DAM collections:', collectionsResult.reason);
+        setDamCollections([]);
+      }
     } catch (error) {
       console.error('Failed to load DAM data:', error);
       setDxStatus({ configured: false, error: error.message });
+      setDamCollections([]);
     } finally {
       setLoadingCollections(false);
     }
-
-    // Auto-load WCM libraries when DAM tab opens
-    loadWcmLibraries();
   };
 
   const initializeCollections = async () => {
@@ -373,10 +429,12 @@ export default function Settings() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-neutral-200">
+      <div className="flex gap-2 border-b border-neutral-200 overflow-x-auto">
         {[
+          { id: 'branding', label: 'Whitelabel', icon: Palette },
           { id: 'roles', label: 'Role Mappings', icon: Users },
-          { id: 'dam', label: 'DAM & WCM', icon: Database },
+          { id: 'dam', label: 'DAM Collections', icon: Database },
+          { id: 'wcm', label: 'WCM Libraries', icon: FileText },
           { id: 'connection', label: 'DX Connection', icon: Server },
         ].map((tab) => (
           <button
@@ -425,7 +483,202 @@ export default function Settings() {
         </div>
       )}
 
-      {/* DAM & WCM Tab */}
+      {/* Whitelabel Branding Tab */}
+      {activeTab === 'branding' && (
+        <div className="space-y-6">
+          <div className="card p-4 bg-secondary-50 border-secondary-200">
+            <div className="flex items-start gap-3">
+              <Palette className="w-5 h-5 text-secondary-600 mt-0.5" />
+              <div>
+                <h3 className="font-medium text-navy-800">Whitelabel Branding</h3>
+                <p className="text-sm text-neutral-600 mt-1">
+                  Customize the application appearance including logo, colors, and application name.
+                  Changes will apply across the entire application for all users.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* App Identity */}
+            <div className="card p-6">
+              <h3 className="text-lg font-semibold text-navy-800 mb-4">Application Identity</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Application Name</label>
+                  <input
+                    type="text"
+                    value={brandForm.appName || ''}
+                    onChange={(e) => handleBrandChange('appName', e.target.value)}
+                    placeholder="DX Composer"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-neutral-400 mt-1">Displayed in sidebar header and browser title</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Subtitle / Organization</label>
+                  <input
+                    type="text"
+                    value={brandForm.appSubtitle || ''}
+                    onChange={(e) => handleBrandChange('appSubtitle', e.target.value)}
+                    placeholder="Your Organization"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-neutral-400 mt-1">Shown below the app name in the sidebar</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Logo URL</label>
+                  <input
+                    type="text"
+                    value={brandForm.logoUrl || ''}
+                    onChange={(e) => handleBrandChange('logoUrl', e.target.value)}
+                    placeholder="https://example.com/logo.png"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-neutral-400 mt-1">URL to your logo image (recommended: 80x80px, PNG or SVG)</p>
+                </div>
+                {/* Logo Preview */}
+                <div className="p-4 bg-neutral-50 rounded-lg">
+                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-3">Sidebar Preview</p>
+                  <div
+                    className="flex items-center gap-3 h-14 px-4 rounded-lg"
+                    style={{ backgroundColor: brandForm.sidebarColor || '#1E3A5F' }}
+                  >
+                    {brandForm.logoUrl ? (
+                      <img
+                        src={brandForm.logoUrl}
+                        alt="Preview"
+                        className="w-9 h-9 object-contain rounded"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded bg-white/20 flex items-center justify-center">
+                        <Type className="w-5 h-5 text-white/60" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-white truncate">{brandForm.appName || 'DX Composer'}</p>
+                      {brandForm.appSubtitle && (
+                        <p className="text-[10px] text-white/70 truncate">{brandForm.appSubtitle}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Color Scheme */}
+            <div className="card p-6">
+              <h3 className="text-lg font-semibold text-navy-800 mb-4">Color Scheme</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Sidebar Color</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={brandForm.sidebarColor || '#1E3A5F'}
+                      onChange={(e) => handleBrandChange('sidebarColor', e.target.value)}
+                      className="w-10 h-10 rounded border border-neutral-200 cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={brandForm.sidebarColor || '#1E3A5F'}
+                      onChange={(e) => handleBrandChange('sidebarColor', e.target.value)}
+                      className="input-field flex-1"
+                      placeholder="#1E3A5F"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Primary / Highlight Color</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={brandForm.primaryColor || '#FFCD00'}
+                      onChange={(e) => handleBrandChange('primaryColor', e.target.value)}
+                      className="w-10 h-10 rounded border border-neutral-200 cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={brandForm.primaryColor || '#FFCD00'}
+                      onChange={(e) => handleBrandChange('primaryColor', e.target.value)}
+                      className="input-field flex-1"
+                      placeholder="#FFCD00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-navy-800 mb-1">Accent Color</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={brandForm.accentColor || '#0A6ED1'}
+                      onChange={(e) => handleBrandChange('accentColor', e.target.value)}
+                      className="w-10 h-10 rounded border border-neutral-200 cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={brandForm.accentColor || '#0A6ED1'}
+                      onChange={(e) => handleBrandChange('accentColor', e.target.value)}
+                      className="input-field flex-1"
+                      placeholder="#0A6ED1"
+                    />
+                  </div>
+                </div>
+
+                {/* Color Swatches Preview */}
+                <div className="p-4 bg-neutral-50 rounded-lg">
+                  <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-3">Color Preview</p>
+                  <div className="flex gap-3">
+                    <div className="text-center">
+                      <div
+                        className="w-12 h-12 rounded-lg shadow-sm border border-neutral-200"
+                        style={{ backgroundColor: brandForm.sidebarColor || '#1E3A5F' }}
+                      />
+                      <p className="text-[10px] text-neutral-500 mt-1">Sidebar</p>
+                    </div>
+                    <div className="text-center">
+                      <div
+                        className="w-12 h-12 rounded-lg shadow-sm border border-neutral-200"
+                        style={{ backgroundColor: brandForm.primaryColor || '#FFCD00' }}
+                      />
+                      <p className="text-[10px] text-neutral-500 mt-1">Primary</p>
+                    </div>
+                    <div className="text-center">
+                      <div
+                        className="w-12 h-12 rounded-lg shadow-sm border border-neutral-200"
+                        style={{ backgroundColor: brandForm.accentColor || '#0A6ED1' }}
+                      />
+                      <p className="text-[10px] text-neutral-500 mt-1">Accent</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleBrandSave}
+              disabled={!brandDirty || savingBrand}
+              className={clsx(
+                'btn-primary px-6 py-2.5',
+                (!brandDirty || savingBrand) && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {savingBrand ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
+              Save Branding
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DAM Collections Tab */}
       {activeTab === 'dam' && (
         <div className="space-y-6">
           {/* DX Status Banner */}
@@ -561,13 +814,30 @@ export default function Settings() {
             )}
           </div>
 
-          {/* WCM Libraries */}
+          {/* DAM URL Format Info */}
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-navy-800 mb-4">DAM Asset URL Format</h3>
+            <p className="text-sm text-neutral-500 mb-4">
+              Published assets will be accessible via the following URL pattern:
+            </p>
+            <div className="bg-neutral-900 rounded-lg p-4 overflow-x-auto">
+              <pre className="text-sm text-neutral-300 font-mono">
+{`${dxStatus?.host || 'your-dx-server'}/dx/api/dam/v1/collections/{collectionId}/items/{assetId}/renditions/original`}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WCM Libraries Tab */}
+      {activeTab === 'wcm' && (
+        <div className="space-y-6">
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-navy-800">WCM Libraries</h3>
                 <p className="text-sm text-neutral-500 mt-1">
-                  Web Content Manager libraries and templates
+                  Web Content Manager libraries available on HCL DX
                 </p>
               </div>
               <button
@@ -580,7 +850,7 @@ export default function Settings() {
                 ) : (
                   <>
                     <RefreshCw className="w-4 h-4 mr-1" />
-                    Load Libraries
+                    Refresh
                   </>
                 )}
               </button>
@@ -591,25 +861,28 @@ export default function Settings() {
                 <Loader2 className="w-6 h-6 animate-spin text-secondary-500" />
               </div>
             ) : wcmLibraries.length === 0 ? (
-              <p className="text-sm text-neutral-400 text-center py-8">
-                No WCM libraries found. Click "Load Libraries" to retry.
-              </p>
+              <div className="text-center py-8">
+                <FileText className="w-10 h-10 mx-auto text-neutral-300 mb-2" />
+                <p className="text-sm text-neutral-400">
+                  No WCM libraries found. Ensure HCL DX is configured and click Refresh.
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {wcmLibraries.map((library, index) => (
-                  <div key={library.id || index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                  <div key={library.id || index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
                     <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-primary-500" />
+                      <FileText className="w-5 h-5 text-secondary-500" />
                       <div>
                         <p className="font-medium text-navy-800">
                           {library.displayTitle || (typeof library.title === 'string' ? library.title : library.title?.value) || library.name || 'Untitled'}
                         </p>
                         <p className="text-xs text-neutral-500">
                           ID: {(library.id || '').replace(/^wcmrest:/, '')}
-                          {library.type && <span className="ml-2">• {library.type}</span>}
+                          {library.type && <span className="ml-2">&bull; {library.type}</span>}
                           {library.data?.enabled !== undefined && (
                             <span className={`ml-2 ${library.data.enabled ? 'text-success-600' : 'text-neutral-400'}`}>
-                              • {library.data.enabled ? 'Enabled' : 'Disabled'}
+                              &bull; {library.data.enabled ? 'Enabled' : 'Disabled'}
                             </span>
                           )}
                         </p>
@@ -619,24 +892,11 @@ export default function Settings() {
                 ))}
                 {wcmLibraries[0]?._demo && (
                   <p className="text-xs text-amber-500 mt-2 text-center">
-                    Demo data — Connect to HCL DX to load real WCM libraries
+                    Demo data &mdash; Connect to HCL DX to load real WCM libraries
                   </p>
                 )}
               </div>
             )}
-          </div>
-
-          {/* DAM URL Format Info */}
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-navy-800 mb-4">DAM Asset URL Format</h3>
-            <p className="text-sm text-neutral-500 mb-4">
-              Published assets will be accessible via the following URL pattern:
-            </p>
-            <div className="bg-neutral-900 rounded-lg p-4 overflow-x-auto">
-              <pre className="text-sm text-neutral-300 font-mono">
-{`${dxStatus?.host || 'your-dx-server'}/dx/api/dam/v1/collections/{collectionId}/items/{assetId}/renditions/original`}
-              </pre>
-            </div>
           </div>
         </div>
       )}

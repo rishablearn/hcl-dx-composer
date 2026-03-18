@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useBrand } from '../context/BrandContext';
 import { damApi, wcmApi } from '../services/api';
 import {
   Image,
@@ -11,7 +12,8 @@ import {
   CheckCircle,
   XCircle,
   ArrowRight,
-  TrendingUp
+  TrendingUp,
+  Sparkles
 } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -87,6 +89,7 @@ function ActivityItem({ action, entityName, user, time, status }) {
 
 export default function Dashboard() {
   const { user, isAuthor, isApprover } = useAuth();
+  const { brand } = useBrand();
   const [loading, setLoading] = useState(true);
   const [damStats, setDamStats] = useState(null);
   const [wcmStats, setWcmStats] = useState(null);
@@ -144,7 +147,7 @@ export default function Dashboard() {
           Welcome back, {user?.displayName || user?.username}
         </h1>
         <p className="text-neutral-500 mt-1">
-          Here's an overview of your content management activities
+          {brand.appName ? `${brand.appName} — ` : ''}Here's an overview of your content management activities
         </p>
       </div>
 
@@ -183,6 +186,12 @@ export default function Dashboard() {
           <div className="space-y-3">
             {isAuthor() && (
               <>
+                <QuickAction
+                  title="AI Creative Studio"
+                  description="Generate content with AI"
+                  href="/ai-studio"
+                  icon={Sparkles}
+                />
                 <QuickAction
                   title="Upload Assets"
                   description="Add new images to DAM"
